@@ -1,31 +1,25 @@
 """
     Given heatmaps from Grad-CAM for different checkpoints (with and without counterfactual training), quantify overlay between heatmaps and ground truth lesion masks.
 """ 
-
 from pytorch_grad_cam import GradCAM
-# Highlight negative class by negating the logit
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
-
-# Custom target for negative class (class 0)
-class NegativeLogitTarget:
-    def __call__(self, model_output):
-        return -model_output
 #from pytorch_grad_cam.utils.image import show_cam_on_image
+
 import torch
-import sys
 import os
 import cv2
 import numpy as np
 import math
 
-# Access convnext, vit and dataset modules
-sys.path.append(os.path.join(os.path.dirname(__file__), '../Classifiers/scripts'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '../Classifiers/aux_scripts'))
-from convNeXt import ConvNeXtClassifier
-from vision_transformer import VisionTransformerClassifier, create_transforms
-from aux_scripts.config import DATA_DIR, DATA_ROOT, METADATA_ROOT
-from aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from code.Classifiers.scripts.convNeXt import ConvNeXtClassifier
+from code.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
+from code.config import DATASET_DIR, MASKS_DIR, IMAGES_ROOT, METADATA_ROOT, DATA_ROOT, MODELS_ROOT
+from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 
+# Custom target for negative class (class 0)
+class NegativeLogitTarget:
+    def __call__(self, model_output):
+        return -model_output
 
 def model_load(checkpoint_path, model_type, device):
     if model_type.lower() == "vit":
@@ -67,13 +61,13 @@ metadata_csv = os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv")
 _, val_transform = create_transforms("none") # No augmentation
 
 anomalous_with_findings_test_dataset = VinDrMammo_dataset(
-    data_dir=DATA_ROOT,
+    data_dir=DATASET_DIR,
     metadata_path=metadata_csv,
     split="test",
     transform=val_transform,
     testing_category="anomalous_with_findings",
     testing_cf = False,
-    counterfactuals_dir = os.path.join(DATA_DIR, "counterfactuals_512")
+    counterfactuals_dir = os.path.join(IMAGES_ROOT, "counterfactuals_512")
 )
 
 print(f"Loaded test split: {len(anomalous_with_findings_test_dataset)} images")
@@ -84,7 +78,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 for model_type in ['convnext', 'vit']:
     for checkpoint_type in ['no_cf', 'cf']:
 
-        checkpoint_path = f'/home/inescgarcia/Documents/BolsaInvestigacao/diffusion-counterfactual-generation/models/{model_type}_{checkpoint_type}.pth'
+        checkpoint_path = os.path.join(MODELS_ROOT, f'{model_type}_{checkpoint_type}.pth')
         model = model_load(checkpoint_path, model_type, device)
 
         # Select the target layer for GradCAM using correct attribute names
@@ -141,7 +135,7 @@ for model_type in ['convnext', 'vit']:
 
                 grayscale_cam = 1.0 - grayscale_cam
 
-                mask_path = os.path.join(DATA_DIR, "masks_512", img_name)
+                mask_path = os.path.join(MASKS_DIR, img_name)
 
                 if os.path.exists(mask_path):
                     mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
@@ -177,7 +171,7 @@ for model_type in ['convnext', 'vit']:
         global_iou = np.mean(all_ious) if all_ious else float('nan')
         n_healthy = len(healthy_ious)
         n_nonhealthy = len(nonhealthy_ious)
-        log_dir = '../../data/gradcam_logs'
+        log_dir = os.path.join(DATA_ROOT, 'gradcam_logs')
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, f'{model_type}_{checkpoint_type}_iou.txt')
         with open(log_path, 'w') as f:
