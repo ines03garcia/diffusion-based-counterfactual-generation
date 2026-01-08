@@ -4,4 +4,4 @@ models/
 .venv/
 __pycache__/
 *.pyc
-code/config.py
+config.py

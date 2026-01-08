@@ -3,15 +3,12 @@ import torch
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-from PIL import Image
-import sys
 import argparse
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from aux_scripts.config import DATA_ROOT, DATA_DIR, METADATA_ROOT, MODEL_ROOT
-from aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
-from scripts.vision_transformer import VisionTransformerClassifier, create_transforms
-from scripts.convNeXt import ConvNeXtClassifier
+from code.config import DATA_ROOT, DATA_DIR, METADATA_ROOT, MODEL_ROOT
+from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from code.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
+from code.Classifiers.scripts.convNeXt import ConvNeXtClassifier
 
 
 # -----------------------------

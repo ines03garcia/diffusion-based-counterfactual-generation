@@ -15,11 +15,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from aux_scripts.config import DATA_DIR, DATA_ROOT, MODEL_ROOT, METADATA_ROOT
-from aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
-from vision_transformer import VisionTransformerClassifier
-from convNeXt import ConvNeXtClassifier
+from code.config import DATASET_DIR, METADATA_ROOT
+from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from code.Classifiers.scripts.vision_transformer import VisionTransformerClassifier
+from code.Classifiers.scripts.convNeXt import ConvNeXtClassifier
 
 
 def create_test_transforms():
@@ -272,7 +271,7 @@ def main():
                        help='Type of model to load (vit or convnext)')
     parser.add_argument('--checkpoint_path', type=str, required=True,
                        help='Path to the trained model checkpoint')
-    parser.add_argument('--data_dir', type=str, default=DATA_ROOT,
+    parser.add_argument('--data_dir', type=str, default=DATASET_DIR,
                        help='Root directory containing the data')
     parser.add_argument('--metadata_path', type=str, 
                        default=os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv'),

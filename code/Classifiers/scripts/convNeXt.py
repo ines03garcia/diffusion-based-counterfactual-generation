@@ -11,11 +11,9 @@ import sys
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import numpy as np
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from aux_scripts.config import DATA_DIR, DATA_ROOT, MODEL_ROOT, METADATA_ROOT
-from aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from code.config import DATA_DIR, DATA_ROOT, MODEL_ROOT, METADATA_ROOT
+from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 
 
 class ConvNeXtClassifier(nn.Module):
@@ -56,12 +54,10 @@ def create_transforms(augmentation_type="standard"):
     else:
         # Standard data augmentation (and possibly with later on counterfactuals)
         train_transform = transforms.Compose([
-            transforms.Resize((256, 256)),  # Slightly larger for random crop
-            transforms.RandomCrop(224),
+            transforms.Resize((224, 224)),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomRotation(degrees=15),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1, hue=0.1),
-            transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.2),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalization values 
         ])
