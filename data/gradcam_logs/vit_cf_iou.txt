@@ -1,0 +1,7 @@
+Model: vit
+Checkpoint: cf
+Average IoU for healthy predictions: 0.8874
+Average IoU for non-healthy predictions: 0.8875
+Global IoU (all predictions): 0.8874
+Number of healthy predictions: 226
+Number of non-healthy predictions: 131

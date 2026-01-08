@@ -1,0 +1,7 @@
+Model: convnext
+Checkpoint: no_cf
+Average IoU for healthy predictions: 0.9099
+Average IoU for non-healthy predictions: 0.8780
+Global IoU (all predictions): 0.8914
+Number of healthy predictions: 150
+Number of non-healthy predictions: 207
