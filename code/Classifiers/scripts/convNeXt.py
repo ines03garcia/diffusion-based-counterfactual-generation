@@ -7,12 +7,11 @@ from torchvision.models import convnext_base
 import argparse
 import json
 import os
-import sys
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from code.config import DATA_DIR, DATA_ROOT, MODEL_ROOT, METADATA_ROOT
+from code.config import DATASET_DIR, MODELS_ROOT, METADATA_ROOT, IMAGES_ROOT
 from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 
 
@@ -22,7 +21,7 @@ class ConvNeXtClassifier(nn.Module):
         
         if pretrained:
             # Load from local file instead of downloading
-            weights_path = os.path.join(MODEL_ROOT, "convnext_base-6075fbad.pth")
+            weights_path = os.path.join(MODELS_ROOT, "convnext_base-6075fbad.pth")
             if os.path.exists(weights_path):
                 self.convnext = convnext_base(weights=None)  # Create model without weights
                 state_dict = torch.load(weights_path, map_location='cpu')
@@ -521,7 +520,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        data_dir=DATA_ROOT,
+        data_dir=DATASET_DIR,
         metadata_path=os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv'),
         experiment_name='convnext_classification',
         batch_size=16,
@@ -533,7 +532,7 @@ def create_argparser():
         augmentation_type='standard',  # 'none', 'standard'
         use_counterfactuals=False,  # Changed default to False for clearer control
         training_category=None,  # New: 'healthy', 'anomalous', 'anomalous_with_findings', or None
-        counterfactual_dir=os.path.join(DATA_DIR, 'counterfactuals_512'),
+        counterfactual_dir=os.path.join(IMAGES_ROOT, 'counterfactuals_512'),
         resume_from_checkpoint=None,
         anomaly_type='birads'  # 'birads', 'mass', 'calcification'
     )

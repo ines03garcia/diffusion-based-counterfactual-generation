@@ -7,15 +7,13 @@ from torchvision.models import vit_b_16
 import argparse
 import json
 import os
-import sys
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from aux_scripts.config import DATA_DIR, DATA_ROOT, MODEL_ROOT, METADATA_ROOT
-from aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from code.config import DATASET_DIR, MODELS_ROOT, METADATA_ROOT
+from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 
 
 class VisionTransformerClassifier(nn.Module):
@@ -24,7 +22,7 @@ class VisionTransformerClassifier(nn.Module):
         
         if pretrained:
             # Load from local file instead of downloading
-            weights_path = os.path.join(MODEL_ROOT, "vit_b_16-c867db91.pth")
+            weights_path = os.path.join(MODELS_ROOT, "vit_b_16-c867db91.pth")
             if os.path.exists(weights_path):
                 self.vit = vit_b_16(weights=None)  # Create model without weights
                 state_dict = torch.load(weights_path, map_location='cpu')
@@ -451,7 +449,7 @@ def main():
     }
     
     if args.resume_from_checkpoint:
-        checkpoint_path = os.path.join(MODEL_ROOT, args.resume_from_checkpoint)
+        checkpoint_path = os.path.join(MODELS_ROOT, args.resume_from_checkpoint)
         if os.path.exists(checkpoint_path):
             print(f"Resuming from checkpoint: {checkpoint_path}")
             checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -536,7 +534,7 @@ def main():
 
 def create_argparser():
     defaults = dict(
-        data_dir=DATA_ROOT,
+        data_dir=DATASET_DIR,
         metadata_path=os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv'),
         experiment_name='vit_classification',
         batch_size=16,

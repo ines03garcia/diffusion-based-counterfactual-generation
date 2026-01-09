@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 import argparse
 
-from code.config import DATA_ROOT, DATA_DIR, METADATA_ROOT, MODEL_ROOT
+from code.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT, MODELS_ROOT
 from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 from code.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
 from code.Classifiers.scripts.convNeXt import ConvNeXtClassifier
@@ -85,9 +85,9 @@ def main():
     else:
         # Use default paths based on model type
         if args.model_type.lower() == "vit":
-            checkpoint_path = os.path.join(MODEL_ROOT, "vit_555013_cf.pth") # ViT model path
+            checkpoint_path = os.path.join(MODELS_ROOT, "vit_555013_cf.pth") # ViT model path
         elif args.model_type.lower() == "convnext":
-            checkpoint_path = os.path.join(MODEL_ROOT, "convnext_no_cf_555470.pth") # ConvNeXt model path
+            checkpoint_path = os.path.join(MODELS_ROOT, "convnext_no_cf_555470.pth") # ConvNeXt model path
         else:
             raise ValueError(f"Unsupported model type: {args.model_type}")
     
@@ -96,11 +96,11 @@ def main():
 
     # Initialize dataset for loading test anomalous images with findings
     metadata_csv = os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv")
-    counterfactuals_dir = os.path.join(DATA_DIR, "counterfactuals_512")
+    counterfactuals_dir = os.path.join(IMAGES_ROOT, "counterfactuals_512")
     
     # Use the new flag-based system to load only anomalous test cases with findings
     dataset = VinDrMammo_dataset(
-        data_dir=DATA_ROOT,
+        data_dir=DATASET_DIR,
         metadata_path=metadata_csv,
         split="test",
         testing_category="anomalous_with_findings",  # Only anomalous cases with counterfactuals
