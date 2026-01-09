@@ -459,14 +459,17 @@ def configure(experiment_type=None, experiment_name=None, format_strs=None, comm
     else:
         experiment_log_dir = "other"
 
+    slurm_job_id = os.environ.get("SLURM_JOB_ID", "local")
+    timestamp = datetime.datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
+
     if experiment_name is None:
         dir = osp.join(
             LOGS_PATH,
             experiment_log_dir,
-            datetime.datetime.now().strftime("%d-%m-%Y | %H-%M-%S"),
+            f"job_{slurm_job_id}_{timestamp}",
         )
     else:
-        dir = os.path.join(LOGS_PATH, experiment_log_dir, experiment_name)
+        dir = os.path.join(LOGS_PATH, experiment_log_dir, f"job_{slurm_job_id}_{timestamp}", experiment_name)
     
     dir = os.path.expanduser(dir)
     os.makedirs(os.path.expanduser(dir), exist_ok=True)
@@ -484,8 +487,8 @@ def configure(experiment_type=None, experiment_name=None, format_strs=None, comm
     output_formats = [make_output_format(f, dir, log_suffix) for f in format_strs]
 
     Logger.CURRENT = Logger(dir=dir, output_formats=output_formats, comm=comm)
-    if output_formats:
-        log("Logging to %s" % dir)
+
+    return dir
 
 
 def _configure_default_logger():
