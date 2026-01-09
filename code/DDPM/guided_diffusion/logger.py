@@ -440,18 +440,34 @@ def mpi_weighted_mean(comm, local_name2valcount):
         return {}
 
 
-def configure(experiment_name=None, format_strs=None, comm=None, log_suffix=""):
+def configure(experiment_type=None, experiment_name=None, format_strs=None, comm=None, log_suffix=""):
     """
     If comm is provided, average all numerical stats across that comm
     """
+    if experiment_type == "ddpm":
+        experiment_log_dir = "DDPM_logs"
+
+    elif experiment_type == "repaint":
+        experiment_log_dir = "RePaint_logs"
+
+    elif experiment_type == "sample":
+        experiment_log_dir = "DDPM_sampling_logs"
+
+    elif experiment_type == "ddpm_noise_and_denoise":
+        experiment_log_dir = "DDPM_noise_and_denoise_logs"
+    
+    else:
+        experiment_log_dir = "other"
+
     if experiment_name is None:
         dir = osp.join(
             LOGS_PATH,
-            "DDPM_logs",
-            datetime.datetime.now().strftime("%d-%m-%Y--%H-%M-%S-%f"),
+            experiment_log_dir,
+            datetime.datetime.now().strftime("%d-%m-%Y | %H-%M-%S"),
         )
     else:
-        dir = os.path.join(LOGS_PATH, "DDPM_logs", experiment_name)
+        dir = os.path.join(LOGS_PATH, experiment_log_dir, experiment_name)
+    
     dir = os.path.expanduser(dir)
     os.makedirs(os.path.expanduser(dir), exist_ok=True)
 

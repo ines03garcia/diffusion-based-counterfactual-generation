@@ -23,7 +23,7 @@ def main():
     args = create_argparser().parse_args()
 
     dist_util.setup_dist()
-    logger.configure()
+    logger.configure(experiment_type="sample")
 
     logger.log("creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(

@@ -85,9 +85,9 @@ def main():
     else:
         # Use default paths based on model type
         if args.model_type.lower() == "vit":
-            checkpoint_path = os.path.join(MODELS_ROOT, "vit_555013_cf.pth") # ViT model path
+            checkpoint_path = os.path.join(MODELS_ROOT, "vit_no_cf.pth") # ViT model path
         elif args.model_type.lower() == "convnext":
-            checkpoint_path = os.path.join(MODELS_ROOT, "convnext_no_cf_555470.pth") # ConvNeXt model path
+            checkpoint_path = os.path.join(MODELS_ROOT, "convnext_no_cf.pth") # ConvNeXt model path
         else:
             raise ValueError(f"Unsupported model type: {args.model_type}")
     

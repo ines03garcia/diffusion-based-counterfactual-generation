@@ -8,6 +8,7 @@ from PIL import Image
 import numpy as np
 import argparse
 import os
+import datetime
 
 from code.DDPM.guided_diffusion.script_util import (
     model_and_diffusion_defaults,
@@ -16,7 +17,7 @@ from code.DDPM.guided_diffusion.script_util import (
     add_dict_to_argparser,
 )
 from code.DDPM.guided_diffusion import dist_util, logger
-from code.config import MODELS_ROOT, METADATA_ROOT, IMAGES_ROOT, MASKS_DIR, DATASET_DIR
+from code.config import LOGS_PATH, MODELS_ROOT, METADATA_ROOT, IMAGES_ROOT, MASKS_DIR, DATASET_DIR
 
 
 # ---------------------------
@@ -137,7 +138,7 @@ def repaint_inpaint(args, model, diffusion, device, example_name):
     x0 = load_image(args.image_path).to(device)
     H, W = x0.shape[-2], x0.shape[-1]
 
-    output_dir = getattr(args, "example_output_dir", args.output_dir)
+    output_dir = getattr(args, "example_output_dir", args.images_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     #save_image(x0, os.path.join(output_dir, "input.png"))
@@ -243,11 +244,13 @@ def repaint_inpaint(args, model, diffusion, device, example_name):
 def main():
     args = create_argparser().parse_args()
     slurm_job_id = os.environ.get("SLURM_JOB_ID", "local")
-    args.output_dir = f"RePaint_DDPM_logs/job_{slurm_job_id}/repaint_output"
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d--%H-%M-%S-%f")
+    args.output_dir = os.path.join(LOGS_PATH, f"RePaint_logs/job_{slurm_job_id}_{timestamp}")
+    args.images_dir = os.path.join(args.output_dir, "images")
 
     device = dist_util.dev()
     dist_util.setup_dist()
-    logger.configure()
+    logger.configure(experiment_type="repaint")
 
     model, diffusion = load_model(args, device)
     os.makedirs(os.path.join(IMAGES_ROOT, "counterfactuals"), exist_ok=True)
@@ -265,7 +268,7 @@ def main():
             raise FileNotFoundError(f"File not found: {args.image_path}")
         
         args.example_output_dir = os.path.join(
-            args.output_dir, f"example_{i+1:02d}_{os.path.splitext(example_name)[0]}"
+            args.images_dir, f"example_{i+1:02d}_{os.path.splitext(example_name)[0]}"
         )
 
         repaint_inpaint(args, model, diffusion, device, example_name)

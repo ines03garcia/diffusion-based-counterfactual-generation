@@ -67,7 +67,7 @@ def main():
     
     # Setup logging
     dist_util.setup_dist()
-    logger.configure()
+    logger.configure(experiment_type="ddpm_noise_and_denoise")
     
     # Load model and diffusion
     model, diffusion = load_model(args, device)
