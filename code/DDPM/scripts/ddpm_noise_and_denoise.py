@@ -1,5 +1,5 @@
 """
-Noise and denoise images using a trained DDPM model.
+Noise and denoise some images using a trained DDPM model.
 """
 import torch
 from PIL import Image
@@ -13,7 +13,7 @@ from code.DDPM.guided_diffusion.script_util import (
     add_dict_to_argparser,
 )
 from code.DDPM.guided_diffusion import dist_util, logger
-from code.config import DATASET_DIR, MODELS_ROOT
+from code.config import DATASET_DIR, MODELS_ROOT, LOGS_PATH
 
 
 def load_image(path):
@@ -59,7 +59,7 @@ def main():
 
     # Get Slurm job ID and create output directory to match log structure
     slurm_job_id = os.environ.get('SLURM_JOB_ID', 'local')
-    args.output_dir = f"DDPM_logs/job_{slurm_job_id}/noise_denoise_output"
+    args.output_dir = os.path.join(LOGS_PATH, f"DDPM_logs/job_{slurm_job_id}/noise_denoise_output")
     
     # Setup device
     device = dist_util.dev()
@@ -177,7 +177,7 @@ def create_argparser():
         class_cond=False,
 
         # Inference parameters
-        model_path=os.path.join(MODELS_ROOT, "model070000.pt"),
+        model_path=os.path.join(MODELS_ROOT, "model009000.pt"),
         examples = ["008c66563c73b2f5b8e42915b2cd6af5.png", "00be38a5c0566291168fe381ba0028e6.png", "00ec2be128f964da6f0b0ba179c4d138.png",
         "001ade2a3cb53fd808bd2856a0df5413.png", 
         "01df962b078e38500bf9dd9969a50083.png",
@@ -193,7 +193,7 @@ def create_argparser():
         "01599597388f3185563decc34945f6b3.png",
         "002460132586dc0c7b88a59dce6e77bd.png"
         ],  
-        image_path=os.path.join(DATASET_DIR, ".png"),
+        image_path=os.path.join(DATASET_DIR),
         noise_steps=200,  # How many noise steps to add
         
         # Device settings

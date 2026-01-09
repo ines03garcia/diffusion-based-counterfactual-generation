@@ -1,7 +1,6 @@
-data/images/
-data/zips/
+config.py
+data/
 models/
 .venv/
 __pycache__/
 *.pyc
-config.py

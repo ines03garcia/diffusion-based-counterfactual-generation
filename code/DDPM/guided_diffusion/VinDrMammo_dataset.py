@@ -23,14 +23,12 @@ class VinDrMammoDataset(torch.utils.data.Dataset):
             self.df_path, encoding="ISO-8859-1"
         )
         if category == "healthy":
-            self.meta_data_data_frame = self.meta_data_data_frame[self.meta_data_data_frame['finding_categories'].str.contains('No Finding', na=False)]
-            print(f"Number of healthy samples: {len(self.meta_data_data_frame)}")
             self.meta_data_data_frame = self.meta_data_data_frame[self.meta_data_data_frame['breast_birads'] == 'BI-RADS 1']
             print(f"Number of healthy samples: {len(self.meta_data_data_frame)}")
 
         elif category == "anomalous":
             self.meta_data_data_frame = self.meta_data_data_frame[~self.meta_data_data_frame["finding_categories"].str.contains('No Finding', na=False)]
-            print(f"Number of samples with findings: {len(self.meta_data_data_frame)}")
+            print(f"Number of anomalous samples with findings: {len(self.meta_data_data_frame)}")
 
         self.sample_idx_to_scan_path_and_label = []
 

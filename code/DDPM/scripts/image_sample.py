@@ -16,6 +16,7 @@ from code.DDPM.guided_diffusion.script_util import (
     add_dict_to_argparser,
     args_to_dict,
 )
+from code.config import MODELS_ROOT
 
 
 def main():
@@ -51,7 +52,7 @@ def main():
         )
         sample = sample_fn(
             model,
-            (args.batch_size, 3, args.image_size, args.image_size),
+            (args.batch_size, 1, args.image_size, args.image_size),
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
         )
@@ -91,10 +92,10 @@ def main():
 def create_argparser():
     defaults = dict(
         clip_denoised=True,
-        num_samples=10000,
+        num_samples=100,
         batch_size=16,
         use_ddim=False,
-        model_path="",
+        model_path=os.path.join(MODELS_ROOT, "model009000.pt"),
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

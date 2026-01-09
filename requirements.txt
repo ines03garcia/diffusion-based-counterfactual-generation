@@ -16,3 +16,5 @@ pytorch-grad-cam
 blobfile
 mpi4py
 imageio
+# For the openai logs
+tensorflow

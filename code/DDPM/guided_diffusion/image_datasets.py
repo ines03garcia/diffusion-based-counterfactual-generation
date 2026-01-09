@@ -6,7 +6,7 @@ import blobfile as bf
 import numpy as np
 from torch.utils.data import DataLoader
 from code.DDPM.guided_diffusion.VinDrMammo_dataset import *
-from code.config import ROOT
+from code.config import METADATA_ROOT
 
 def load_data(
     *,
@@ -29,7 +29,7 @@ def load_data(
     :param deterministic: if True, yield results in a deterministic order.
     """
 
-    df_path = os.path.join(ROOT, "thesis/data/metadata/grouped_df.csv")
+    df_path = os.path.join(METADATA_ROOT, "grouped_df.csv")
 
     dataset = VinDrMammoDataset(
         dataset_root_folder_filepath=data_dir,

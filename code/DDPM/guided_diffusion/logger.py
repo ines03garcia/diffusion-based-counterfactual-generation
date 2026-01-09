@@ -14,6 +14,7 @@ import tempfile
 import warnings
 from collections import defaultdict
 from contextlib import contextmanager
+from code.config import LOGS_PATH
 
 DEBUG = 10
 INFO = 20
@@ -445,11 +446,12 @@ def configure(experiment_name=None, format_strs=None, comm=None, log_suffix=""):
     """
     if experiment_name is None:
         dir = osp.join(
-            'results',
-            datetime.datetime.now().strftime("openai-%Y-%m-%d-%H-%M-%S-%f"),
+            LOGS_PATH,
+            "DDPM_logs",
+            datetime.datetime.now().strftime("%d-%m-%Y--%H-%M-%S-%f"),
         )
     else:
-        dir = f'results/{experiment_name}'
+        dir = os.path.join(LOGS_PATH, "DDPM_logs", experiment_name)
     dir = os.path.expanduser(dir)
     os.makedirs(os.path.expanduser(dir), exist_ok=True)
 
