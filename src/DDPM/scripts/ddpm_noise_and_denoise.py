@@ -1,5 +1,5 @@
 """
-Noise and denoise some images using a trained DDPM model.
+Generate synthetic healthy mammograms by noising and denoising anomalous images for <noise_steps> timesteps using a trained DDPM model on healthy samples.
 """
 import torch
 from PIL import Image
