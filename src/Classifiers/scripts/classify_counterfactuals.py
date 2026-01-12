@@ -45,10 +45,6 @@ def model_load(checkpoint_path, model_type, device):
     print(f"Loaded {model_type.upper()} model from {checkpoint_path}")
     return model
 
-def load_model(checkpoint_path, device):
-    """Legacy function for backward compatibility - defaults to ViT"""
-    return model_load(checkpoint_path, "vit", device)
-
 
 # -----------------------------
 # Prediction helper
@@ -56,12 +52,30 @@ def load_model(checkpoint_path, device):
 def predict(model, image, device):
     with torch.no_grad():
         if image.ndim == 3:  # [C, H, W]
-            image = image.unsqueeze(0)
+            image = image.unsqueeze(0) # [1, C, H, W]
         image = image.to(device)
         output = model(image)
         prob = torch.sigmoid(output).item()
         pred = int(prob > 0.5)
-    return pred, prob  # 0 = healthy, 1 = anomalous, probability
+    return pred, prob  # 0 = healthy or 1 = anomalous, probability
+
+
+# -----------------------------
+# Arg parser
+# -----------------------------
+def create_argparser():
+    defaults = dict(
+        model_type="vit",
+        checkpoint_path=os.path.join(MODELS_ROOT, "vit_no_cf.pth"),
+        data_dir=DATASET_DIR,
+        metadata_dir=os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv"),
+        counterfactuals_dir=os.path.join(IMAGES_ROOT, "counterfactuals_512"),
+        batch_size=16,
+    )
+    parser = argparse.ArgumentParser(description="Classify counterfactual images")
+    for k, v in defaults.items():
+        parser.add_argument(f"--{k}", type=type(v), default=v)
+    return parser
 
 
 # -----------------------------
@@ -69,12 +83,7 @@ def predict(model, image, device):
 # -----------------------------
 def main():
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Classify counterfactual images using ViT or ConvNeXt models')
-    parser.add_argument('--model_type', type=str, default='vit', choices=['vit', 'convnext'],
-                        help='Type of model to use (vit or convnext)')
-    parser.add_argument('--checkpoint_path', type=str, default=None,
-                        help='Path to model checkpoint (if not provided, uses default paths)')
-    args = parser.parse_args()
+    args = create_argparser().parse_args()
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     _, val_transform = create_transforms("none")
@@ -83,30 +92,20 @@ def main():
     if args.checkpoint_path:
         checkpoint_path = args.checkpoint_path
     else:
-        # Use default paths based on model type
-        if args.model_type.lower() == "vit":
-            checkpoint_path = os.path.join(MODELS_ROOT, "vit_no_cf.pth") # ViT model path
-        elif args.model_type.lower() == "convnext":
-            checkpoint_path = os.path.join(MODELS_ROOT, "convnext_no_cf.pth") # ConvNeXt model path
-        else:
-            raise ValueError(f"Unsupported model type: {args.model_type}")
+        raise ValueError("Error: --checkpoint_path must be provided.")
     
     # Load model using the new function
     model = model_load(checkpoint_path, args.model_type, device)
-
-    # Initialize dataset for loading test anomalous images with findings
-    metadata_csv = os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv")
-    counterfactuals_dir = os.path.join(IMAGES_ROOT, "counterfactuals_512")
     
     # Use the new flag-based system to load only anomalous test cases with findings
     dataset = VinDrMammo_dataset(
         data_dir=DATASET_DIR,
-        metadata_path=metadata_csv,
+        metadata_path=args.metadata_dir,
         split="test",
         testing_category="anomalous_with_findings",  # Only anomalous cases with counterfactuals
         testing_cf=False,  # Don't include counterfactuals in the dataset, we'll load them separately
         transform=val_transform,
-        counterfactuals_dir=counterfactuals_dir
+        counterfactuals_dir=args.counterfactuals_dir
     )
 
     print(f"Found {len(dataset)} test anomalous images with findings for evaluation")
