@@ -10,9 +10,7 @@ opencv-python
 pathlib
 argparse
 einops
-ast
-json
-pytorch-grad-cam
+grad-cam
 blobfile
 mpi4py
 imageio

@@ -5,8 +5,8 @@ from PIL import Image
 import blobfile as bf
 import numpy as np
 from torch.utils.data import DataLoader
-from code.DDPM.guided_diffusion.VinDrMammo_dataset import *
-from code.config import METADATA_ROOT
+from scr.DDPM.guided_diffusion.VinDrMammo_dataset import *
+from scr.config import METADATA_ROOT
 
 def load_data(
     *,
