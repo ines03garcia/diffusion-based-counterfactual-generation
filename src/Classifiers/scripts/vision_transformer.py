@@ -12,8 +12,8 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 
-from code.config import DATASET_DIR, MODELS_ROOT, METADATA_ROOT
-from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from src.config import DATASET_DIR, MODELS_ROOT, METADATA_ROOT
+from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 
 
 class VisionTransformerClassifier(nn.Module):

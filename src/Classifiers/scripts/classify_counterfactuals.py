@@ -5,10 +5,10 @@ import numpy as np
 from tqdm import tqdm
 import argparse
 
-from code.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT, MODELS_ROOT
-from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
-from code.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
-from code.Classifiers.scripts.convNeXt import ConvNeXtClassifier
+from src.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT, MODELS_ROOT
+from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from src.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
+from src.Classifiers.scripts.convNeXt import ConvNeXtClassifier
 
 
 # -----------------------------

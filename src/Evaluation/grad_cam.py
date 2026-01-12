@@ -11,10 +11,10 @@ import cv2
 import numpy as np
 import math
 
-from code.Classifiers.scripts.convNeXt import ConvNeXtClassifier
-from code.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
-from code.config import DATASET_DIR, MASKS_DIR, IMAGES_ROOT, METADATA_ROOT, DATA_ROOT, MODELS_ROOT
-from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from src.Classifiers.scripts.convNeXt import ConvNeXtClassifier
+from src.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
+from src.config import DATASET_DIR, MASKS_DIR, IMAGES_ROOT, METADATA_ROOT, DATA_ROOT, MODELS_ROOT
+from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 
 # Custom target for negative class (class 0)
 class NegativeLogitTarget:

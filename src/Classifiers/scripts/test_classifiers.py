@@ -13,10 +13,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
-from code.config import DATASET_DIR, METADATA_ROOT
-from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
-from code.Classifiers.scripts.vision_transformer import VisionTransformerClassifier
-from code.Classifiers.scripts.convNeXt import ConvNeXtClassifier
+from src.config import DATASET_DIR, METADATA_ROOT
+from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from src.Classifiers.scripts.vision_transformer import VisionTransformerClassifier
+from src.Classifiers.scripts.convNeXt import ConvNeXtClassifier
 
 
 def create_test_transforms():

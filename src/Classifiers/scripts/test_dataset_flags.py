@@ -1,8 +1,8 @@
 # Example usage of the new VinDrMammo_dataset with flags
 import os
 
-from code.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
-from code.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT
+from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from src.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT
 
 # Example configurations:
 
