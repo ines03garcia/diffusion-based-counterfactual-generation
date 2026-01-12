@@ -7,14 +7,14 @@ import numpy as np
 import argparse
 from pathlib import Path
 from tqdm import tqdm
-from code.DDPM.guided_diffusion.script_util import (
+from src.DDPM.guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
     args_to_dict,
     add_dict_to_argparser,
 )
-from code.DDPM.guided_diffusion import dist_util, logger
-from code.config import DATASET_DIR, MODELS_ROOT, LOGS_PATH
+from src.DDPM.guided_diffusion import dist_util, logger
+from src.config import DATASET_DIR, MODELS_ROOT
 
 
 def load_image(path):

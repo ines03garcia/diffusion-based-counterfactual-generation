@@ -8,15 +8,15 @@ import numpy as np
 import torch as th
 import torch.distributed as dist
 
-from code.DDPM.guided_diffusion import dist_util, logger
-from code.DDPM.guided_diffusion.script_util import (
+from src.DDPM.guided_diffusion import dist_util, logger
+from src.DDPM.guided_diffusion.script_util import (
     NUM_CLASSES,
     model_and_diffusion_defaults,
     create_model_and_diffusion,
     add_dict_to_argparser,
     args_to_dict,
 )
-from code.config import MODELS_ROOT
+from src.config import MODELS_ROOT
 
 
 def main():

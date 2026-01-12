@@ -10,14 +10,14 @@ import argparse
 import os
 import datetime
 
-from code.DDPM.guided_diffusion.script_util import (
+from src.DDPM.guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
     args_to_dict,
     add_dict_to_argparser,
 )
-from code.DDPM.guided_diffusion import dist_util, logger
-from code.config import LOGS_PATH, MODELS_ROOT, METADATA_ROOT, IMAGES_ROOT, MASKS_DIR, DATASET_DIR
+from src.DDPM.guided_diffusion import dist_util, logger
+from src.config import LOGS_PATH, MODELS_ROOT, METADATA_ROOT, IMAGES_ROOT, MASKS_DIR, DATASET_DIR
 
 
 # ---------------------------

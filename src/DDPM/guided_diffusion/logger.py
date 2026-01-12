@@ -14,7 +14,7 @@ import tempfile
 import warnings
 from collections import defaultdict
 from contextlib import contextmanager
-from scr.config import LOGS_PATH
+from src.config import LOGS_PATH
 
 DEBUG = 10
 INFO = 20

@@ -6,17 +6,17 @@ import argparse
 import json
 import os
 
-from scr.DDPM.guided_diffusion.image_datasets import load_data
-from scr.DDPM.guided_diffusion import dist_util, logger
-from scr.DDPM.guided_diffusion.resample import create_named_schedule_sampler
-from scr.DDPM.guided_diffusion.script_util import (
+from src.DDPM.guided_diffusion.image_datasets import load_data
+from src.DDPM.guided_diffusion import dist_util, logger
+from src.DDPM.guided_diffusion.resample import create_named_schedule_sampler
+from src.DDPM.guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
     args_to_dict,
     add_dict_to_argparser,
 )
-from scr.DDPM.guided_diffusion.train_util import TrainLoop
-from scr.config import DATASET_DIR
+from src.DDPM.guided_diffusion.train_util import TrainLoop
+from src.config import DATASET_DIR
 
 
 
