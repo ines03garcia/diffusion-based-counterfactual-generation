@@ -26,8 +26,6 @@ def main():
     # Add job ID to experiment name if running in SLURM
     job_id = os.environ.get('SLURM_JOB_ID', 'local')
     args.experiment_name = f"DDPM_train_job_{job_id}"
-    
-    print(vars(args))
 
     dist_util.setup_dist()
     logger.configure(experiment_type="ddpm", experiment_name=args.experiment_name)
