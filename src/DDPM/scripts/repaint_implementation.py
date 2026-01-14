@@ -11,6 +11,8 @@ import os
 import datetime
 from tqdm import trange
 
+import time
+
 from src.DDPM.guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
@@ -96,16 +98,24 @@ def draw_bbox(image_path, example_name, image_with_bbox_path):
 def load_model(args, device):
     if args.debugging:
         logger.log("Creating model and diffusion...")
+    t0 = time.time()
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     model.to(device)
+    t1 = time.time()
+    if args.debugging:
+        logger.log(f"[Timing] Model and diffusion creation took {t1 - t0:.2f} seconds.")
 
     if args.model_path:
         if args.debugging:
             logger.log(f"Loading model from checkpoint: {args.model_path}")
+        t2 = time.time()
         state_dict = dist_util.load_state_dict(args.model_path, map_location=device)
         model.load_state_dict(state_dict)
+        t3 = time.time()
+        if args.debugging:
+            logger.log(f"[Timing] Model loading took {t3 - t2:.2f} seconds.")
         if args.debugging:
             logger.log("Model loaded successfully.")
     else:
@@ -293,7 +303,8 @@ def main():
     model, diffusion = load_model(args, device)
     os.makedirs(CF_DIR, exist_ok=True)
 
-    for i, example_name in enumerate(args.examples):
+    start_time = time.time()
+    for _, example_name in enumerate(args.examples):
         if example_name in os.listdir(CF_DIR):
             if args.debugging:
                 logger.log(f"[RePaint] counterfactual already created for: {example_name}")
@@ -306,6 +317,9 @@ def main():
             raise FileNotFoundError(f"File not found: {image_path} or {mask_path}")
 
         repaint_inpaint(image_path, mask_path, example_name, args.diffusion_steps, output_dir, model, diffusion, device, args.jump_length, args.jump_n_sample, args.debugging, args.save_intermediate)
+    
+    end_time = time.time()
+    logger.log(f"Total RePaint time for {len(args.examples)} images: {end_time - start_time:.2f} seconds.")
 
 
 def create_argparser():
