@@ -21,7 +21,6 @@ from src.config import DATASET_DIR
 
 def main():
     args = create_argparser().parse_args()
-
     dist_util.setup_dist()
     logger.configure(experiment_type="ddpm")
 
@@ -30,28 +29,28 @@ def main():
     with open(args_path, 'w') as convert_file:
             convert_file.write(json.dumps(vars(args)))
 
-    logger.log("creating model and diffusion...")
+    logger.log("Creating model and diffusion...")
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     
     if args.gpus > 1:
         model = nn.DataParallel(model)
-
     device = dist_util.dev()
-    print("Using device:", device)
+    
+    logger.log(f"Using device: {device}")
     model = model.to(device)
 
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
-
-    logger.log("creating data loader...")
+    
+    logger.log("Creating data loader...")
     data = load_data(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
         category="healthy"
     )
 
-    logger.log("training...")
+    logger.log("Training...")
     TrainLoop(
         model=model,
         diffusion=diffusion,
