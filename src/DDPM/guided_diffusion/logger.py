@@ -440,7 +440,7 @@ def mpi_weighted_mean(comm, local_name2valcount):
         return {}
 
 
-def configure(experiment_type=None, experiment_name=None,format_strs=None, comm=None, log_suffix=""):
+def configure(experiment_type=None, format_strs=None, comm=None, log_suffix=""):
     """
     If comm is provided, average all numerical stats across that comm
     """
@@ -462,14 +462,11 @@ def configure(experiment_type=None, experiment_name=None,format_strs=None, comm=
     slurm_job_id = os.environ.get("SLURM_JOB_ID", "local")
     timestamp = datetime.datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
 
-    if experiment_name is None:
-        dir = osp.join(
-            LOGS_PATH,
-            experiment_log_dir,
-            f"job_{slurm_job_id}_{timestamp}",
-        )
-    else:
-        dir = os.path.join(LOGS_PATH, experiment_log_dir, f"job_{slurm_job_id}_{timestamp}", experiment_name)
+    dir = osp.join(
+        LOGS_PATH,
+        experiment_log_dir,
+        f"job_{slurm_job_id}_{timestamp}",
+    )
     
     dir = os.path.expanduser(dir)
     os.makedirs(os.path.expanduser(dir), exist_ok=True)

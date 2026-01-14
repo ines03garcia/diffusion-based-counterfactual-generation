@@ -21,15 +21,11 @@ from src.config import DATASET_DIR
 
 def main():
     args = create_argparser().parse_args()
-    
-    # Add job ID to experiment name if running in SLURM
-    job_id = os.environ.get('SLURM_JOB_ID', 'local')
-    args.experiment_name = f"DDPM_train_job_{job_id}"
 
     dist_util.setup_dist()
-    logger.configure(experiment_type="ddpm", experiment_name=args.experiment_name)
+    logger.configure(experiment_type="ddpm")
 
-    # Create path logs/<experiment_name>/args.txt and writes the args
+    # Writes the args to a file in the log directory
     args_path = os.path.join(logger.get_dir(), 'args.txt') 
     with open(args_path, 'w') as convert_file:
             convert_file.write(json.dumps(vars(args)))
@@ -41,12 +37,10 @@ def main():
     
     if args.gpus > 1:
         model = nn.DataParallel(model)
-        print("Using cuda!")
-        model = model.to("cuda")
-    else:
-        device = dist_util.dev()
-        print("Using device:", device)
-        model = model.to(device)
+
+    device = dist_util.dev()
+    print("Using device:", device)
+    model = model.to(device)
 
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
