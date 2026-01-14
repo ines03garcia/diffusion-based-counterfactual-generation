@@ -164,9 +164,8 @@ def repaint_inpaint(
         image_path: str,
         mask_path: str,
         example_name: str,
-        example_output_dir: str,
-        images_dir: str,
         diffusion_steps: int,
+        output_dir: str,
         model,
         diffusion,
         device,
@@ -186,12 +185,15 @@ def repaint_inpaint(
     x0 = load_image(image_path).to(device)
     H, W = x0.shape[-2], x0.shape[-1]
 
-    output_dir = example_output_dir or images_dir
-    os.makedirs(output_dir, exist_ok=True)
+    if debugging:
+        output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
+    else:
+        output_images_dir = os.path.join(output_dir, "images")
+    os.makedirs(output_images_dir, exist_ok=True)
 
     # Visualize input image
     if debugging:
-        save_image(x0, os.path.join(output_dir, "input.png"))
+        save_image(x0, os.path.join(output_images_dir, "input.png"))
         logger.log(f"Input image saved.")
 
     try:
@@ -202,12 +204,12 @@ def repaint_inpaint(
 
     # Visualize mask
     if debugging:
-        save_image(mask, os.path.join(output_dir, "mask.png"))
+        save_image(mask, os.path.join(output_images_dir, "mask.png"))
         logger.log(f"Mask image saved.")
 
     # Visualize input with bounding boxes
     if debugging:
-        draw_bbox(image_path, example_name, os.path.join(output_dir, "input_with_bbox.png"))
+        draw_bbox(image_path, example_name, os.path.join(output_images_dir, "input_with_bbox.png"))
         logger.log(f"Input image with bounding boxes saved.")
 
     # Start from noise, project known region at T
@@ -256,7 +258,7 @@ def repaint_inpaint(
 
             # Save intermediate results
             if save_intermediate and (diffusion_steps - (current_step + 1)) % 100 == 0:
-                save_image(x_t, os.path.join(output_dir, f"repaint_t{current_step:04d}.png"))
+                save_image(x_t, os.path.join(output_images_dir, f"repaint_t{current_step:04d}.png"))
                 if debugging:
                     logger.log(f"[RePaint] saved intermediate at step {current_step}")
 
@@ -264,7 +266,7 @@ def repaint_inpaint(
         final_img = x_t * (1 - mask) + x0 * mask
 
         if debugging:
-            final_path = os.path.join(output_dir, "repaint_result.png")
+            final_path = os.path.join(output_images_dir, "repaint_result.png")
             save_image(final_img, final_path)
             logger.log(f"[RePaint] saved: {final_path}")
 
@@ -274,25 +276,19 @@ def repaint_inpaint(
 
         # Visualize output with bounding boxes
         if debugging:
-            draw_bbox(final_path, example_name, os.path.join(output_dir, "output_with_bbox.png"))
+            draw_bbox(final_path, example_name, os.path.join(output_images_dir, "output_with_bbox.png"))
 
 
 # ---------------------------
 # CLI
 # ---------------------------
 def main():
-    # Parse args and setup logging
+    # Parse args
     args = create_argparser().parse_args()
-    slurm_job_id = os.environ.get("SLURM_JOB_ID", "local")
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d--%H-%M-%S-%f")
-    
-    args.output_dir = os.path.join(LOGS_PATH, f"RePaint_logs/job_{slurm_job_id}_{timestamp}")
-    args.images_dir = os.path.join(args.output_dir, "images")
-    os.makedirs(args.images_dir, exist_ok=True)
 
     device = dist_util.dev()
     dist_util.setup_dist()
-    logger.configure(experiment_type="repaint")
+    output_dir = logger.configure(experiment_type="repaint")
 
     model, diffusion = load_model(args, device)
     os.makedirs(CF_DIR, exist_ok=True)
@@ -303,18 +299,13 @@ def main():
                 logger.log(f"[RePaint] counterfactual already created for: {example_name}")
             continue
         
-        args.image_path = os.path.join(DATASET_DIR, example_name)
-        args.mask_path = os.path.join(MASKS_DIR, example_name)
-        args.example_name = example_name
-        
-        if not os.path.exists(args.image_path):
-            raise FileNotFoundError(f"File not found: {args.image_path}")
-        
-        args.example_output_dir = os.path.join(
-            args.images_dir, f"example_{i+1:02d}_{os.path.splitext(example_name)[0]}"
-        )
+        image_path = os.path.join(DATASET_DIR, example_name)
+        mask_path = os.path.join(MASKS_DIR, example_name)
 
-        repaint_inpaint(args, model, diffusion, device, example_name)
+        if not os.path.exists(image_path) or not os.path.exists(mask_path):
+            raise FileNotFoundError(f"File not found: {image_path} or {mask_path}")
+
+        repaint_inpaint(image_path, mask_path, example_name, args.diffusion_steps, output_dir, model, diffusion, device, args.jump_length, args.jump_n_sample, args.debugging, args.save_intermediate)
 
 
 def create_argparser():
@@ -342,6 +333,7 @@ def create_argparser():
         jump_length=-1,
         jump_n_sample=-1,
         debugging=False,
+        save_intermediate=False,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
