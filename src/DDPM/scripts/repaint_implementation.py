@@ -11,6 +11,8 @@ import os
 import datetime
 from tqdm import trange
 
+import time
+
 from src.DDPM.guided_diffusion.script_util import (
     model_and_diffusion_defaults,
     create_model_and_diffusion,
@@ -96,16 +98,24 @@ def draw_bbox(image_path, example_name, image_with_bbox_path):
 def load_model(args, device):
     if args.debugging:
         logger.log("Creating model and diffusion...")
+    t0 = time.time()
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     model.to(device)
+    t1 = time.time()
+    if args.debugging:
+        logger.log(f"[Timing] Model and diffusion creation took {t1 - t0:.2f} seconds.")
 
     if args.model_path:
         if args.debugging:
             logger.log(f"Loading model from checkpoint: {args.model_path}")
+        t2 = time.time()
         state_dict = dist_util.load_state_dict(args.model_path, map_location=device)
         model.load_state_dict(state_dict)
+        t3 = time.time()
+        if args.debugging:
+            logger.log(f"[Timing] Model loading took {t3 - t2:.2f} seconds.")
         if args.debugging:
             logger.log("Model loaded successfully.")
     else:
@@ -183,40 +193,66 @@ def repaint_inpaint(
     if debugging:
         logger.log(f"---[RePaint] image: {image_path}---")
 
+
+    t0 = time.time()
     x0 = load_image(image_path).to(device)
+    t1 = time.time()
     H, W = x0.shape[-2], x0.shape[-1]
 
     output_dir = example_output_dir or images_dir
     os.makedirs(output_dir, exist_ok=True)
 
+    if debugging:
+        logger.log(f"[Timing] Loading image took {t1 - t0:.2f} seconds.")
+
     # Visualize input image
+    t2 = time.time()
     if debugging:
         save_image(x0, os.path.join(output_dir, "input.png"))
         logger.log(f"Input image saved.")
+    t3 = time.time()
+    if debugging:
+        logger.log(f"[Timing] Saving input image took {t3 - t2:.2f} seconds.")
 
     try:
+        t4 = time.time()
         mask = load_mask(mask_path, (H, W), device=device)
+        t5 = time.time()
+        if debugging:
+            logger.log(f"[Timing] Loading mask took {t5 - t4:.2f} seconds.")
     except Exception as e:
         logger.log(f"Error with --mask_path: {mask_path}")
         return
 
     # Visualize mask
+    t6 = time.time()
     if debugging:
         save_image(mask, os.path.join(output_dir, "mask.png"))
         logger.log(f"Mask image saved.")
+    t7 = time.time()
+    if debugging:
+        logger.log(f"[Timing] Saving mask image took {t7 - t6:.2f} seconds.")
 
     # Visualize input with bounding boxes
+    t8 = time.time()
     if debugging:
         draw_bbox(image_path, example_name, os.path.join(output_dir, "input_with_bbox.png"))
         logger.log(f"Input image with bounding boxes saved.")
+    t9 = time.time()
+    if debugging:
+        logger.log(f"[Timing] Drawing bbox took {t9 - t8:.2f} seconds.")
 
     # Start from noise, project known region at T
     with torch.no_grad():
+        t10 = time.time()
         T = diffusion_steps - 1
         t = torch.tensor([T], device=device)
         x_t = torch.randn_like(x0)
         known_noise = torch.randn_like(x0)
         x_t = project_known_region(diffusion, x0, x_t, t, mask, noise=known_noise)
+        t11 = time.time()
+        if debugging:
+            logger.log(f"[Timing] Initial noise and projection took {t11 - t10:.2f} seconds.")
 
         if debugging:
             if jump_length > 0:
@@ -227,7 +263,9 @@ def repaint_inpaint(
         current_step = diffusion_steps - 1
 
         # tqdm progress bar for the diffusion steps
+        diffusion_start = time.time()
         for _ in trange(diffusion_steps, desc="RePaint Diffusion", leave=False):
+            step_start = time.time()
             t = torch.tensor([current_step], device=device)
 
             # Project known region at current t
@@ -259,9 +297,20 @@ def repaint_inpaint(
                 save_image(x_t, os.path.join(output_dir, f"repaint_t{current_step:04d}.png"))
                 if debugging:
                     logger.log(f"[RePaint] saved intermediate at step {current_step}")
+            step_end = time.time()
+            if debugging:
+                logger.log(f"[Timing] Diffusion step took {step_end - step_start:.2f} seconds.")
+
+        diffusion_end = time.time()
+        if debugging:
+            logger.log(f"[Timing] All diffusion steps took {diffusion_end - diffusion_start:.2f} seconds.")
 
         # Project known region one last time
+        t12 = time.time()
         final_img = x_t * (1 - mask) + x0 * mask
+        t13 = time.time()
+        if debugging:
+            logger.log(f"[Timing] Final projection took {t13 - t12:.2f} seconds.")
 
         if debugging:
             final_path = os.path.join(output_dir, "repaint_result.png")
@@ -282,39 +331,61 @@ def repaint_inpaint(
 # ---------------------------
 def main():
     # Parse args and setup logging
+
+    t0 = time.time()
     args = create_argparser().parse_args()
+    t1 = time.time()
     slurm_job_id = os.environ.get("SLURM_JOB_ID", "local")
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d--%H-%M-%S-%f")
     
-    args.output_dir = os.path.join(LOGS_PATH, f"RePaint_logs/job_{slurm_job_id}_{timestamp}")
-    args.images_dir = os.path.join(args.output_dir, "images")
-    os.makedirs(args.images_dir, exist_ok=True)
+    output_dir = os.path.join(LOGS_PATH, f"RePaint_logs/job_{slurm_job_id}_{timestamp}")
+    images_dir = os.path.join(output_dir, "images")
+    os.makedirs(images_dir, exist_ok=True)
 
+    t2 = time.time()
     device = dist_util.dev()
     dist_util.setup_dist()
     logger.configure(experiment_type="repaint")
+    t3 = time.time()
 
+    if getattr(args, 'debugging', False):
+        logger.log(f"[Timing] Argparse took {t1 - t0:.2f} seconds.")
+        logger.log(f"[Timing] Output dir setup took {t2 - t1:.2f} seconds.")
+        logger.log(f"[Timing] Device/dist_util/logger setup took {t3 - t2:.2f} seconds.")
+
+    t4 = time.time()
     model, diffusion = load_model(args, device)
+    t5 = time.time()
     os.makedirs(CF_DIR, exist_ok=True)
 
+    if getattr(args, 'debugging', False):
+        logger.log(f"[Timing] Model and diffusion loading took {t5 - t4:.2f} seconds.")
+
+    t6 = time.time()
     for i, example_name in enumerate(args.examples):
         if example_name in os.listdir(CF_DIR):
             if args.debugging:
                 logger.log(f"[RePaint] counterfactual already created for: {example_name}")
             continue
         
-        args.image_path = os.path.join(DATASET_DIR, example_name)
-        args.mask_path = os.path.join(MASKS_DIR, example_name)
-        args.example_name = example_name
+        image_path = os.path.join(DATASET_DIR, example_name)
+        mask_path = os.path.join(MASKS_DIR, example_name)
+        example_name = example_name
         
-        if not os.path.exists(args.image_path):
-            raise FileNotFoundError(f"File not found: {args.image_path}")
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"File not found: {image_path}")
         
-        args.example_output_dir = os.path.join(
-            args.images_dir, f"example_{i+1:02d}_{os.path.splitext(example_name)[0]}"
+        example_output_dir = os.path.join(
+            images_dir, f"example_{i+1:02d}_{os.path.splitext(example_name)[0]}"
         )
 
-        repaint_inpaint(args, model, diffusion, device, example_name)
+        repaint_inpaint(image_path, mask_path, example_name, example_output_dir, images_dir, args.diffusion_steps, model,
+        diffusion, device, args.jump_length, args.jump_n_sample, args.debugging,
+        args.save_intermediate)
+        break  # Only process one image then stop
+    t7 = time.time()
+    if getattr(args, 'debugging', False):
+        logger.log(f"[Timing] All examples processed in {t7 - t6:.2f} seconds.")
 
 
 def create_argparser():
@@ -341,7 +412,8 @@ def create_argparser():
         use_fp16=False,
         jump_length=-1,
         jump_n_sample=-1,
-        debugging=False,
+        debugging=True,
+        save_intermediate=False,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
