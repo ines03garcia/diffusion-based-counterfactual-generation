@@ -2,11 +2,12 @@ import os
 import shutil
 import pandas as pd
 from pathlib import Path
+from config import METADATA_PATH, SOURCE_DIR, DEST_DIR
 
 # Define paths
-metadata_path = "/home/inescgarcia/Documents/BolsaInvestigacao/diffusion-based-counterfactual-generation/data/metadata/grouped_df.csv"
-source_dir = "/home/inescgarcia/Documents/BolsaInvestigacao/diffusion-based-counterfactual-generation/data/images/VinDr-Mammo-Clip-CLAHE-512"
-dest_base_dir = "/home/inescgarcia/Documents/BolsaInvestigacao/diffusion-based-counterfactual-generation/data/images/data_dir/img_dir"
+metadata_path = METADATA_PATH
+source_dir = SOURCE_DIR
+dest_base_dir = DEST_DIR
 
 # Read metadata
 df = pd.read_csv(metadata_path)
