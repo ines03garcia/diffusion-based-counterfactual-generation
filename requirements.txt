@@ -16,3 +16,12 @@ mpi4py
 imageio
 # For the openai logs
 tensorflow
+# For the classifier
+timm
+transformers
+entmax
+tensorboard
+albumentations
+h5py
+nltk
+seaborn
