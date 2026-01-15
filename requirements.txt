@@ -25,3 +25,5 @@ albumentations
 h5py
 nltk
 seaborn
+scikit-image
+pynvml

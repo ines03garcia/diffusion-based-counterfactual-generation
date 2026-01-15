@@ -22,7 +22,6 @@ from utils.plot_utils import plot_loss_and_acc_curves, plot_lrs_scheduler, plot_
 from utils.data_split_utils import generator_cross_val_folds, stratified_train_val_split
 
 def do_experiments(args, device):
-        
     args.n_class = 1 # Binary classification setup (single output neuron)
         
     # Define class labels based on selected task
@@ -31,7 +30,10 @@ def do_experiments(args, device):
         class1 = 'mass'
     elif args.label.lower() == 'suspicious_calcification':
         class0 = 'not_calcification'
-        class1 = 'calcification'   
+        class1 = 'calcification'
+    elif args.label.lower() == 'anomaly':
+        class0 = 'healthy'
+        class1 = 'anomalous'
 
     label_dict = {class0: 0, class1: 1}
 
@@ -47,10 +49,12 @@ def do_experiments(args, device):
     # Split data into dev (train+val) and test sets
     dev_df = args.df[args.df['split'] == "training"].reset_index(drop=True)
     test_df = args.df[args.df['split'] == "test"].reset_index(drop=True)
+    print("Data split done")
 
     # reduce dataset size for debugging/experiments if desired
     if args.data_frac < 1.0:
         dev_df = dev_df.sample(frac=args.data_frac, random_state=1, ignore_index=True) 
+    print("Dataset size reduced, if specified")
 
     # repeated k runs using fixed data splits 
     if args.eval_scheme == 'kruns_train+val+test': 

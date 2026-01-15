@@ -59,7 +59,7 @@ def build_model(args):
     # instantiate MIL Model
     if args.mil_type == 'embedding': # single-scale patch-based mil models 
         model = EmbeddingMIL(mil_type = args.mil_type, 
-                             num_inst = [math.ceil(args.img_size[0]/s) * math.ceil(args.img_size[1]/s) for s in args.scales], # number of instances (patches) per image 
+                             num_inst = [math.ceil(int(args.img_size[0])/s) * math.ceil(int(args.img_size[1])/s) for s in args.scales], # number of instances (patches) per image 
                              mil_args = mil_args)
         
     elif args.mil_type == 'pyramidal_mil':

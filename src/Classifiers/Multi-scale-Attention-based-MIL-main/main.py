@@ -157,7 +157,7 @@ def config():
     parser.add_argument("--print-freq", default=5000, type=int)
     parser.add_argument("--log-freq", default=1000, type=int)
     parser.add_argument("--running-interactive", default='n', type=str)
-    parser.add_argument('--eval_scheme', default='kruns_train+val', type=str, help='Evaluation scheme [kruns_train+val | kfold_cv+test ]')
+    parser.add_argument('--eval_scheme', default='kruns_train+val+test', type=str, help='Evaluation scheme [kruns_train+val | kfold_cv+test ]')
     parser.add_argument('--resume', default = None, type = str) 
     parser.add_argument('--test_example', default = None, type = str) 
     
@@ -183,13 +183,15 @@ def main(args):
     torch.cuda.empty_cache() # Clean up
 
     if args.train: 
-
+        args.weighted_BCE = "y" # couldn't find where to change this
         # From MammoCLIP's work 
         if args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "mass":
             args.BCE_weights = 15.573306370070778
         elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "suspicious_calcification":
             args.BCE_weights = 37.296728971962615
-        
+        elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "anomaly":
+            args.BCE_weights = 26.43501767 # Average of the other 2 values
+
         if args.mil_type: 
 
             #ENCODER STAGE 
@@ -232,7 +234,7 @@ def main(args):
         else: 
             train_mode = 'offline_feature_extraction'
             
-        args.output_path = Path(f"{args.output_dir}/MIL_experiments/{args.dataset}_data_frac_{args.data_frac}/{args.label}/{train_mode}/{root}/{now}") 
+        args.output_path = Path(f"{args.output_dir}/MIL_experiments/{args.dataset}_data_frac_{args.data_frac}/{args.label}/{train_mode}/{now}") 
         
         os.makedirs(args.output_path, exist_ok=True)
         print(f"output_path: {args.output_path}")
