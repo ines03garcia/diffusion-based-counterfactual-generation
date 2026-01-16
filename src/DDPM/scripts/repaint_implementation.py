@@ -8,8 +8,7 @@ from PIL import Image
 import numpy as np
 import argparse
 import os
-import datetime
-from tqdm import trange
+from tqdm import trange, tqdm
 
 import time
 
@@ -20,7 +19,7 @@ from src.DDPM.guided_diffusion.script_util import (
     add_dict_to_argparser,
 )
 from src.DDPM.guided_diffusion import dist_util, logger
-from src.config import LOGS_PATH, MODELS_ROOT, METADATA_ROOT, MASKS_DIR, DATASET_DIR, CF_DIR
+from src.config import MODELS_ROOT, METADATA_ROOT, MASKS_DIR, DATASET_DIR, CF_DIR
 
 
 # ---------------------------
@@ -98,24 +97,17 @@ def draw_bbox(image_path, example_name, image_with_bbox_path):
 def load_model(args, device):
     if args.debugging:
         logger.log("Creating model and diffusion...")
-    t0 = time.time()
+
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     model.to(device)
-    t1 = time.time()
-    if args.debugging:
-        logger.log(f"[Timing] Model and diffusion creation took {t1 - t0:.2f} seconds.")
 
     if args.model_path:
         if args.debugging:
             logger.log(f"Loading model from checkpoint: {args.model_path}")
-        t2 = time.time()
         state_dict = dist_util.load_state_dict(args.model_path, map_location=device)
         model.load_state_dict(state_dict)
-        t3 = time.time()
-        if args.debugging:
-            logger.log(f"[Timing] Model loading took {t3 - t2:.2f} seconds.")
         if args.debugging:
             logger.log("Model loaded successfully.")
     else:
@@ -144,13 +136,14 @@ def repaint_jump_step(x_t, current_step, jump_n_sample, diffusion_steps, diffusi
         and project the known region at the jumped-back timestep.
     """
     jump_back_to = min(current_step + jump_n_sample, diffusion_steps - 1)
+    batch_size = x_t.shape[0]
     
     if jump_back_to > current_step:
         if debugging:
             logger.log(f"[RePaint] Jumping back from step {current_step} to step {jump_back_to}")
         
         # Jump back by adding noise
-        t_jump_back = torch.tensor([jump_back_to], device=device)
+        t_jump_back = torch.tensor([jump_back_to] * batch_size, device=device)
         
         # Calculate the number of steps to jump back
         steps_back = jump_back_to - current_step
@@ -160,7 +153,7 @@ def repaint_jump_step(x_t, current_step, jump_n_sample, diffusion_steps, diffusi
         
         # Use the forward process to add noise (q_sample)
         # We go from current denoised state back to a more noisy state
-        x_t = diffusion.q_sample(x_start=x_t, t=torch.tensor([steps_back], device=device), noise=jump_noise)
+        x_t = diffusion.q_sample(x_start=x_t, t=torch.tensor([steps_back] * batch_size, device=device), noise=jump_noise)
         
         # Project the known region at the jumped-back timestep
         x_t = project_known_region(diffusion, x0, x_t, t_jump_back, mask, noise=known_noise)
@@ -289,6 +282,135 @@ def repaint_inpaint(
             draw_bbox(final_path, example_name, os.path.join(output_images_dir, "output_with_bbox.png"))
 
 
+def repaint_inpaint_batch(
+        image_paths: list,
+        mask_paths: list,
+        example_names: list,
+        diffusion_steps: int,
+        output_dir: str,
+        model,
+        diffusion,
+        device,
+        jump_length: int = 10,
+        jump_n_sample: int = 10,
+        debugging: bool = False,
+        save_intermediate: bool = False,
+    ):
+    """
+    RePaint algorithm implementation for batch processing.
+    
+    The RePaint paper introduces a projection logic and jumping mechanism where every jump_length iterations, 
+    the scheduler jumps back by jump_n_sample steps and then continues forward. These help blending the 
+    inpainted and known regions.
+    """
+    batch_size = len(image_paths)
+    
+    if debugging:
+        logger.log(f"---[RePaint] Processing batch of {batch_size} images---")
+
+    # Load all images and masks in the batch
+    x0_list = []
+    mask_list = []
+    valid_indices = []
+    
+    for idx, (image_path, mask_path, example_name) in enumerate(zip(image_paths, mask_paths, example_names)):
+        try:
+            x0 = load_image(image_path).to(device)
+            H, W = x0.shape[-2], x0.shape[-1]
+            mask = load_mask(mask_path, (H, W), device=device)
+            
+            x0_list.append(x0)
+            mask_list.append(mask)
+            valid_indices.append(idx)
+            
+            if debugging:
+                output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
+                os.makedirs(output_images_dir, exist_ok=True)
+                save_image(x0, os.path.join(output_images_dir, "input.png"))
+                save_image(mask, os.path.join(output_images_dir, "mask.png"))
+                draw_bbox(image_path, example_name, os.path.join(output_images_dir, "input_with_bbox.png"))
+        except Exception as e:
+            logger.log(f"Error loading {image_path} or {mask_path}: {e}")
+            continue
+    
+    if len(x0_list) == 0:
+        logger.log("No valid images in batch, skipping.")
+        return
+    
+    # Stack into batched tensors
+    x0_batch = torch.cat(x0_list, dim=0)  # (B, 1, H, W)
+    mask_batch = torch.cat(mask_list, dim=0)  # (B, 1, H, W)
+    
+    # Start from noise, project known region at T
+    with torch.no_grad():
+        T = diffusion_steps - 1
+        t = torch.tensor([T] * x0_batch.shape[0], device=device)
+        x_t = torch.randn_like(x0_batch)
+        known_noise = torch.randn_like(x0_batch)
+        x_t = project_known_region(diffusion, x0_batch, x_t, t, mask_batch, noise=known_noise)
+
+        if debugging:
+            if jump_length > 0:
+                logger.log(f"[RePaint] reverse diffusion with {diffusion_steps} steps, jumping every {jump_length} steps.")
+            else:
+                logger.log(f"[RePaint] reverse diffusion with {diffusion_steps} steps and no jumping.")
+
+        current_step = diffusion_steps - 1
+
+        # tqdm progress bar for the diffusion steps
+        for _ in trange(diffusion_steps, desc=f"RePaint Batch ({len(x0_list)} imgs)", leave=False):
+            t = torch.tensor([current_step] * x0_batch.shape[0], device=device)
+
+            # Project known region at current t
+            x_t = project_known_region(diffusion, x0_batch, x_t, t, mask_batch, noise=known_noise)
+
+            # One denoising step
+            out = diffusion.p_sample(model, x_t, t)
+            x_tm1 = out["sample"]
+
+            # Project at t-1 if not at the final step
+            if current_step > 0:
+                t_prev = torch.tensor([current_step - 1] * x0_batch.shape[0], device=device)
+                x_tm1 = project_known_region(diffusion, x0_batch, x_tm1, t_prev, mask_batch, noise=known_noise)
+
+            x_t = x_tm1
+
+            # Move to next step
+            current_step -= 1
+
+            # RePaint jumping mechanism: every jump_length iterations, jump back
+            if jump_length > 0 and (diffusion_steps - (current_step + 1)) % jump_length == 0 and current_step >= 0:
+                x_t, current_step = repaint_jump_step(
+                    x_t, current_step, jump_n_sample, diffusion_steps,
+                    diffusion, device, debugging, logger, x0_batch, mask_batch, known_noise
+                )
+
+            # Save intermediate results (only for debugging and first image in batch)
+            if save_intermediate and debugging and (diffusion_steps - (current_step + 1)) % 100 == 0:
+                example_name = example_names[valid_indices[0]]
+                output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
+                save_image(x_t[0:1], os.path.join(output_images_dir, f"repaint_t{current_step:04d}.png"))
+
+        # Project known region one last time
+        final_batch = x_t * (1 - mask_batch) + x0_batch * mask_batch
+
+        # Save all results
+        for idx, valid_idx in enumerate(valid_indices):
+            example_name = example_names[valid_idx]
+            final_img = final_batch[idx:idx+1]
+            
+            if debugging:
+                output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
+                final_path = os.path.join(output_images_dir, "repaint_result.png")
+                save_image(final_img, final_path)
+                draw_bbox(image_paths[valid_idx], example_name, os.path.join(output_images_dir, "output_with_bbox.png"))
+                logger.log(f"[RePaint] saved: {final_path}")
+
+            # Save final image
+            final_general_path = os.path.join(CF_DIR, example_name)
+            save_image(final_img, final_general_path)
+
+
 # ---------------------------
 # CLI
 # ---------------------------
@@ -303,23 +425,53 @@ def main():
     model, diffusion = load_model(args, device)
     os.makedirs(CF_DIR, exist_ok=True)
 
+    # Filter out already processed images
+    existing_cfs = set(os.listdir(CF_DIR))
+    examples_to_process = [name for name in args.examples if name not in existing_cfs]
+    
+    if args.debugging:
+        logger.log(f"Found {len(existing_cfs)} existing counterfactuals")
+        logger.log(f"Processing {len(examples_to_process)} new images")
+
     start_time = time.time()
-    for _, example_name in enumerate(args.examples):
-        if example_name in os.listdir(CF_DIR):
-            if args.debugging:
-                logger.log(f"[RePaint] counterfactual already created for: {example_name}")
+    batch_size = args.batch_size
+    
+    # Process in batches
+    for batch_start in tqdm(range(0, len(examples_to_process), batch_size), desc="Processing batches"):
+        batch_end = min(batch_start + batch_size, len(examples_to_process))
+        batch_names = examples_to_process[batch_start:batch_end]
+        
+        batch_image_paths = [os.path.join(DATASET_DIR, name) for name in batch_names]
+        batch_mask_paths = [os.path.join(MASKS_DIR, name) for name in batch_names]
+        
+        # Check if all files exist
+        valid_batch = True
+        for img_path, mask_path in zip(batch_image_paths, batch_mask_paths):
+            if not os.path.exists(img_path) or not os.path.exists(mask_path):
+                logger.log(f"File not found: {img_path} or {mask_path}")
+                valid_batch = False
+                break
+        
+        if not valid_batch:
             continue
         
-        image_path = os.path.join(DATASET_DIR, example_name)
-        mask_path = os.path.join(MASKS_DIR, example_name)
-
-        if not os.path.exists(image_path) or not os.path.exists(mask_path):
-            raise FileNotFoundError(f"File not found: {image_path} or {mask_path}")
-
-        repaint_inpaint(image_path, mask_path, example_name, args.diffusion_steps, output_dir, model, diffusion, device, args.jump_length, args.jump_n_sample, args.debugging, args.save_intermediate)
+        repaint_inpaint_batch(
+            batch_image_paths, 
+            batch_mask_paths, 
+            batch_names, 
+            args.diffusion_steps, 
+            output_dir, 
+            model, 
+            diffusion, 
+            device, 
+            args.jump_length, 
+            args.jump_n_sample, 
+            args.debugging, 
+            args.save_intermediate
+        )
     
     end_time = time.time()
-    logger.log(f"Total RePaint time for {len(args.examples)} images: {end_time - start_time:.2f} seconds.")
+    logger.log(f"Total RePaint time for {len(examples_to_process)} images: {end_time - start_time:.2f} seconds.")
 
 
 def create_argparser():
@@ -348,6 +500,7 @@ def create_argparser():
         jump_n_sample=-1,
         debugging=False,
         save_intermediate=False,
+        batch_size=32,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
