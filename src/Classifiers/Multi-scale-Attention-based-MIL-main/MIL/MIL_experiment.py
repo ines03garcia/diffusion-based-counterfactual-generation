@@ -102,7 +102,7 @@ def do_experiments(args, device):
             val_results, best_checkpoint_path = k_experiment(train_df, val_df, output_path= path_results_run, args = args, device = device)
 
             # load the best model checkpoint
-            checkpoint = torch.load(best_checkpoint_path, map_location='cpu')
+            checkpoint = torch.load(best_checkpoint_path, map_location='cpu', weights_only=False)
             fold_model = build_model(args)
             fold_model.load_state_dict(checkpoint['model'])
             fold_model.to(device)

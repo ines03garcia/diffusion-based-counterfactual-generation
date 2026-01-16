@@ -30,7 +30,10 @@ def run_eval(run_path, args, device):
         class1 = 'mass'
     elif args.label.lower() == 'suspicious_calcification':
         class0 = 'not_calcification'
-        class1 = 'calcification'   
+        class1 = 'calcification'
+    elif args.label.lower() == 'anomaly':
+        class0 = 'healthy'
+        class1 = 'anomalous'
 
     label_dict = {class0: 0, class1: 1}
 
@@ -63,7 +66,7 @@ def run_eval(run_path, args, device):
     print_network(model)
 
     # Load best model checkpoint
-    checkpoint = torch.load(os.path.join(run_path, 'best_model.pth'), map_location='cpu')
+    checkpoint = torch.load(os.path.join(run_path, 'best_model.pth'), map_location='cpu', weights_only=False)
     model.load_state_dict(checkpoint['model'], strict=False)
     
     # Set the model to evaluation mode
