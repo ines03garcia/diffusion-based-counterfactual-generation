@@ -68,7 +68,7 @@ def build_model(args):
             
             # number of instances per scale for each aggregation level 
             num_inst = [(args.patch_size/s)**2 for s in args.scales]
-            num_inst.append(math.ceil(args.img_size[0]/args.patch_size) * math.ceil(args.img_size[1]/args.patch_size))
+            num_inst.append(math.ceil(int(args.img_size[0])/args.patch_size) * math.ceil(int(args.img_size[1])/args.patch_size))
             
             model = NestedPyramidalMILmodel(
                 args.type_scale_aggregator, 
@@ -84,11 +84,11 @@ def build_model(args):
 
             # number of instances per scale
             if args.multi_scale_model in ['fpn', 'backbone_pyramid']: # FPN-based mil models 
-                num_patches = math.ceil(args.img_size[0]/args.patch_size) * math.ceil(args.img_size[1]/args.patch_size)
+                num_patches = math.ceil(int(args.img_size[0])/args.patch_size) * math.ceil(int(args.img_size[1])/args.patch_size)
                 num_inst = [(args.patch_size/s)**2 * num_patches for s in args.scales] 
                 
             else: # multi-scale patch-based mil models 
-                num_inst = [math.ceil(args.img_size[0]/s) * math.ceil(args.img_size[1]/s) for s in args.scales]
+                num_inst = [math.ceil(int(args.img_size[0])/s) * math.ceil(int(args.img_size[1])/s) for s in args.scales]
             
             model = PyramidalMILmodel(
                 args.type_scale_aggregator, 
