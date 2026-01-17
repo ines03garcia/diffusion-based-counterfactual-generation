@@ -49,4 +49,4 @@ class VisionTransformerClassifier(nn.Module):
                            f"Please download them manually or ensure internet connectivity.")
     
     def forward(self, x):
-        return self.vit(x)
+        return self.vit(x).squeeze(-1)
