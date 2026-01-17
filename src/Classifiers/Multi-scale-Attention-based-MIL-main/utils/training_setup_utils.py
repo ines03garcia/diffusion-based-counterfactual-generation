@@ -84,16 +84,21 @@ class Training_Stage_Config:
             current_lr (float): Current base learning rate.
             add_param_group (bool): If True, adds top layer params to optimizer with 0.1 * lr.
         """
-
+        # If module is FPN, access the backbone
+        target = module.backbone if hasattr(module, 'backbone') and module.backbone is not None else module
+        
+        # If no _blocks, skip
+        if not hasattr(target, '_blocks'):
+            return
+    
         for block_num in range(1, 9): 
-            block = module._blocks[-block_num]  
+            block = target._blocks[-block_num]  
             
             for param in block.parameters():   
                 param.requires_grad = True
-
-            # If specified, add block to optimizer with reduced learning rate
-            if add_param_group: 
-                optimizer.add_param_group({'params': block.parameters(), 'lr': current_lr*0.1}) 
+    
+            if add_param_group and optimizer:  
+                optimizer.add_param_group({'params': block.parameters(), 'lr': current_lr*0.1})
      
     
     def __call__(self, model, optimizer, current_epoch, current_lr): 
