@@ -19,7 +19,7 @@ from src.DDPM.guided_diffusion.script_util import (
     add_dict_to_argparser,
 )
 from src.DDPM.guided_diffusion import dist_util, logger
-from src.config import MODELS_ROOT, METADATA_ROOT, MASKS_DIR, DATASET_DIR, CF_DIR
+from src.config import MODELS_ROOT, METADATA_ROOT, MASKS_DIR, DATASET_DIR
 
 
 # ---------------------------
@@ -163,134 +163,16 @@ def repaint_jump_step(x_t, current_step, jump_n_sample, diffusion_steps, diffusi
     return x_t, current_step
 
 
-def repaint_inpaint(
-        image_path: str,
-        mask_path: str,
-        example_name: str,
-        diffusion_steps: int,
-        output_dir: str,
-        model,
-        diffusion,
-        device,
-        jump_length: int = 10,
-        jump_n_sample: int = 10,
-        debugging: bool = False,
-        save_intermediate: bool = False,
-    ):
-    """
-    RePaint algorithm implementation.
-    
-    The RePaint paper introduces a projection logic and jumping mechanism where every jump_length iterations, the scheduler jumps back by jump_n_sample steps and then continues forward. These help blending the inpainted and known regions.
-    """
-    if debugging:
-        logger.log(f"---[RePaint] image: {image_path}---")
-
-    x0 = load_image(image_path).to(device)
-    H, W = x0.shape[-2], x0.shape[-1]
-
-    if debugging:
-        output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
-    else:
-        output_images_dir = os.path.join(output_dir, "images")
-    os.makedirs(output_images_dir, exist_ok=True)
-
-    # Visualize input image
-    if debugging:
-        save_image(x0, os.path.join(output_images_dir, "input.png"))
-        logger.log(f"Input image saved.")
-
-    try:
-        mask = load_mask(mask_path, (H, W), device=device)
-    except Exception as e:
-        logger.log(f"Error with --mask_path: {mask_path}")
-        return
-
-    # Visualize mask
-    if debugging:
-        save_image(mask, os.path.join(output_images_dir, "mask.png"))
-        logger.log(f"Mask image saved.")
-
-    # Visualize input with bounding boxes
-    if debugging:
-        draw_bbox(image_path, example_name, os.path.join(output_images_dir, "input_with_bbox.png"))
-        logger.log(f"Input image with bounding boxes saved.")
-
-    # Start from noise, project known region at T
-    with torch.no_grad():
-        T = diffusion_steps - 1
-        t = torch.tensor([T], device=device)
-        x_t = torch.randn_like(x0)
-        known_noise = torch.randn_like(x0)
-        x_t = project_known_region(diffusion, x0, x_t, t, mask, noise=known_noise)
-
-        if debugging:
-            if jump_length > 0:
-                logger.log(f"[RePaint] reverse diffusion with {diffusion_steps} steps, jumping every {jump_length} steps.")
-            else:
-                logger.log(f"[RePaint] reverse diffusion with {diffusion_steps} steps and no jumping.")
-
-        current_step = diffusion_steps - 1
-
-        # tqdm progress bar for the diffusion steps
-        for _ in trange(diffusion_steps, desc="RePaint Diffusion", leave=False):
-            t = torch.tensor([current_step], device=device)
-
-            # Project known region at current t
-            x_t = project_known_region(diffusion, x0, x_t, t, mask, noise=known_noise)
-
-            # One denoising step
-            out = diffusion.p_sample(model, x_t, t)
-            x_tm1 = out["sample"]
-
-            # Project at t-1 if not at the final step
-            if current_step > 0:
-                t_prev = torch.tensor([current_step - 1], device=device)
-                x_tm1 = project_known_region(diffusion, x0, x_tm1, t_prev, mask, noise=known_noise)
-
-            x_t = x_tm1
-
-            # Move to next step
-            current_step -= 1
-
-            # RePaint jumping mechanism: every jump_length iterations, jump back
-            if jump_length > 0 and (diffusion_steps - (current_step + 1)) % jump_length == 0 and current_step >= 0:
-                x_t, current_step = repaint_jump_step(
-                    x_t, current_step, jump_n_sample, diffusion_steps,
-                    diffusion, device, debugging, logger, x0, mask, known_noise
-                )
-
-            # Save intermediate results
-            if save_intermediate and (diffusion_steps - (current_step + 1)) % 100 == 0:
-                save_image(x_t, os.path.join(output_images_dir, f"repaint_t{current_step:04d}.png"))
-                if debugging:
-                    logger.log(f"[RePaint] saved intermediate at step {current_step}")
-
-        # Project known region one last time
-        final_img = x_t * (1 - mask) + x0 * mask
-
-        if debugging:
-            final_path = os.path.join(output_images_dir, "repaint_result.png")
-            save_image(final_img, final_path)
-            logger.log(f"[RePaint] saved: {final_path}")
-
-        # Save final image
-        final_general_path = os.path.join(CF_DIR, example_name)
-        save_image(final_img, final_general_path)
-
-        # Visualize output with bounding boxes
-        if debugging:
-            draw_bbox(final_path, example_name, os.path.join(output_images_dir, "output_with_bbox.png"))
-
-
 def repaint_inpaint_batch(
         image_paths: list,
         mask_paths: list,
         example_names: list,
         diffusion_steps: int,
-        output_dir: str,
         model,
         diffusion,
         device,
+        repaint_results_dir: str,
+        debugging_dir: str = None,
         jump_length: int = 10,
         jump_n_sample: int = 10,
         debugging: bool = False,
@@ -324,11 +206,13 @@ def repaint_inpaint_batch(
             valid_indices.append(idx)
             
             if debugging:
-                output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
-                os.makedirs(output_images_dir, exist_ok=True)
-                save_image(x0, os.path.join(output_images_dir, "input.png"))
-                save_image(mask, os.path.join(output_images_dir, "mask.png"))
-                draw_bbox(image_path, example_name, os.path.join(output_images_dir, "input_with_bbox.png"))
+                sample_output_dir = os.path.join(debugging_dir, example_name.split(".")[0])
+                os.makedirs(sample_output_dir, exist_ok=True)
+
+                save_image(x0, os.path.join(sample_output_dir, "input.png"))
+                save_image(mask, os.path.join(sample_output_dir, "mask.png"))
+                draw_bbox(image_path, example_name, os.path.join(sample_output_dir, "input_with_bbox.png"))
+                
         except Exception as e:
             logger.log(f"Error loading {image_path} or {mask_path}: {e}")
             continue
@@ -388,8 +272,8 @@ def repaint_inpaint_batch(
             # Save intermediate results (only for debugging and first image in batch)
             if save_intermediate and debugging and (diffusion_steps - (current_step + 1)) % 100 == 0:
                 example_name = example_names[valid_indices[0]]
-                output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
-                save_image(x_t[0:1], os.path.join(output_images_dir, f"repaint_t{current_step:04d}.png"))
+                sample_output_dir = os.path.join(debugging_dir, example_name.split(".")[0])
+                save_image(x_t[0:1], os.path.join(sample_output_dir, f"repaint_t{current_step:04d}.png"))
 
         # Project known region one last time
         final_batch = x_t * (1 - mask_batch) + x0_batch * mask_batch
@@ -400,15 +284,15 @@ def repaint_inpaint_batch(
             final_img = final_batch[idx:idx+1]
             
             if debugging:
-                output_images_dir = os.path.join(output_dir, "images", example_name.split(".")[0])
-                final_path = os.path.join(output_images_dir, "repaint_result.png")
+                sample_output_dir = os.path.join(debugging_dir, example_name.split(".")[0])
+                final_path = os.path.join(sample_output_dir, "repaint_result.png")
                 save_image(final_img, final_path)
-                draw_bbox(image_paths[valid_idx], example_name, os.path.join(output_images_dir, "output_with_bbox.png"))
+                draw_bbox(image_paths[valid_idx], example_name, os.path.join(sample_output_dir, "output_with_bbox.png"))
                 logger.log(f"[RePaint] saved: {final_path}")
 
-            # Save final image
-            final_general_path = os.path.join(CF_DIR, example_name)
-            save_image(final_img, final_general_path)
+            # Save final image to repaint results directory
+            final_cfs_path = os.path.join(repaint_results_dir, example_name)
+            save_image(final_img, final_cfs_path)
 
 
 # ---------------------------
@@ -420,18 +304,30 @@ def main():
 
     device = dist_util.dev()
     dist_util.setup_dist()
+
     output_dir = logger.configure(experiment_type="repaint")
+    repaint_results_dir = os.path.join(output_dir, "images/repaint_results")
+    os.makedirs(repaint_results_dir, exist_ok=True)
+
+    if args.debugging:
+        debugging_dir = os.path.join(output_dir, "images/debugging")
+        os.makedirs(debugging_dir, exist_ok=True)
+        logger.log(f"Debugging mode enabled. Debugging outputs will be saved to {debugging_dir}")
 
     model, diffusion = load_model(args, device)
-    os.makedirs(CF_DIR, exist_ok=True)
 
-    # Filter out already processed images
-    existing_cfs = set(os.listdir(CF_DIR))
-    examples_to_process = [name for name in args.examples if name not in existing_cfs]
-    
-    if args.debugging:
-        logger.log(f"Found {len(existing_cfs)} existing counterfactuals")
-        logger.log(f"Processing {len(examples_to_process)} new images")
+    # Filter out already processed images if resume_repaint is enabled
+    if args.resume_repaint:
+        existing_cfs = set(os.listdir(args.cf_dir))
+        examples_to_process = [name for name in args.examples if name not in existing_cfs]
+        
+        if args.debugging:
+            logger.log(f"Resume mode: Found {len(existing_cfs)} existing counterfactuals in {args.cf_dir}")
+            logger.log(f"Processing {len(examples_to_process)} new images")
+    else:
+        examples_to_process = args.examples
+        if args.debugging:
+            logger.log(f"Processing all {len(examples_to_process)} images")
 
     start_time = time.time()
     batch_size = args.batch_size
@@ -460,15 +356,19 @@ def main():
             batch_mask_paths, 
             batch_names, 
             args.diffusion_steps, 
-            output_dir, 
             model, 
             diffusion, 
             device, 
+            repaint_results_dir,
+            debugging_dir if args.debugging else None,
             args.jump_length, 
             args.jump_n_sample, 
             args.debugging, 
             args.save_intermediate
         )
+        
+        # Clear GPU cache between batches to prevent memory fragmentation
+        torch.cuda.empty_cache()
     
     end_time = time.time()
     logger.log(f"Total RePaint time for {len(examples_to_process)} images: {end_time - start_time:.2f} seconds.")
@@ -493,14 +393,16 @@ def create_argparser():
         diffusion_steps=1000,
         noise_schedule="linear",
         timestep_respacing="",
-        model_path=os.path.join(MODELS_ROOT, "model009000.pt"),
+        model_path=os.path.join(MODELS_ROOT, "model008000.pt"),
         examples=anomalous_images,
         use_fp16=False,
         jump_length=-1,
         jump_n_sample=-1,
         debugging=False,
         save_intermediate=False,
-        batch_size=32,
+        batch_size=16,
+        resume_repaint=False,
+        cf_dir=None,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
