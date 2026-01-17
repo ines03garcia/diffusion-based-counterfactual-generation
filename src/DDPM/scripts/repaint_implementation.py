@@ -61,7 +61,7 @@ def draw_bbox(image_path, example_name, image_with_bbox_path):
         return
 
     for col in ['resized_xmin', 'resized_ymin', 'resized_xmax', 'resized_ymax']:
-        image_row[col] = image_row[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
+        image_row.loc[:, col] = image_row[col].apply(lambda x: eval(x) if isinstance(x, str) else x)
 
     row = image_row.iloc[0]
     
@@ -287,7 +287,7 @@ def repaint_inpaint_batch(
                 sample_output_dir = os.path.join(debugging_dir, example_name.split(".")[0])
                 final_path = os.path.join(sample_output_dir, "repaint_result.png")
                 save_image(final_img, final_path)
-                draw_bbox(image_paths[valid_idx], example_name, os.path.join(sample_output_dir, "output_with_bbox.png"))
+                draw_bbox(final_path, example_name, os.path.join(sample_output_dir, "output_with_bbox.png"))
                 logger.log(f"[RePaint] saved: {final_path}")
 
             # Save final image to repaint results directory
