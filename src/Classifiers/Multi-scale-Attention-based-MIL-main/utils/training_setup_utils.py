@@ -42,6 +42,12 @@ class Training_Stage_Config:
                     self._freeze_parameters(model.inst_encoder)
                 elif isinstance(model, PyramidalMILmodel) or isinstance(model,NestedPyramidalMILmodel):
                     self._freeze_parameters(model.inst_encoder.backbone) 
+                    
+                print(f"[INFO] - MIL aggregator and classifier remain trainable during warmup.")
+                # Unfreeze the MIL components (everything except inst_encoder)
+                for name, param in model.named_parameters():
+                    if 'inst_encoder' not in name:
+                        param.requires_grad = True
 
             else: 
                 print(f"[INFO]: Finetune phase: Unfreeze top layers from the instance encoder")

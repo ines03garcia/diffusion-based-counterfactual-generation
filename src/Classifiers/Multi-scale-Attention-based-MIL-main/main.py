@@ -183,14 +183,13 @@ def main(args):
     torch.cuda.empty_cache() # Clean up
 
     if args.train: 
-        args.weighted_BCE = "y" # couldn't find where to change this
         # From MammoCLIP's work 
         if args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "mass":
             args.BCE_weights = 15.573306370070778
         elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "suspicious_calcification":
             args.BCE_weights = 37.296728971962615
         elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "anomaly":
-            args.BCE_weights = 26.43501767 # Average of the other 2 values
+            args.BCE_weights = 13.673514
 
         if args.mil_type: 
 

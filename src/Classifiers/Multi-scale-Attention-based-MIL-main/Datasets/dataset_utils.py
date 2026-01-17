@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from albumentations import *
 from torch.utils.data import DataLoader
 import cv2
+import random
 
 from .dataset_concepts import Generic_MIL_Dataset_Detection, collate_MIL_patches_detection, Generic_MIL_Dataset, collate_MIL_patches, BagDataset, collate_patch_features
 
