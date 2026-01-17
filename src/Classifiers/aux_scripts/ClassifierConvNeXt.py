@@ -47,6 +47,6 @@ class ConvNeXtClassifier(nn.Module):
             raise ValueError(f"Local weights not found at {weights_path}")
     
     def forward(self, x):
-        return self.convnext(x)
+        return self.convnext(x).squeeze(-1)
 
 

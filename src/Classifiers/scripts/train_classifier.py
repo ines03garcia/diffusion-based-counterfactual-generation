@@ -284,9 +284,9 @@ def create_argparser():
         pretrained=True,
         freeze_layers=6,  # Number of initial feature layers to freeze (0 = no freezing)
         augmentation_type='standard',  # 'none', 'standard'
-        use_counterfactuals=False,  # Changed default to False for clearer control
+        use_counterfactuals=False,
         training_category=None,  # New: 'healthy', 'anomalous', 'anomalous_with_findings', or None
-        counterfactual_dir=os.path.join(IMAGES_ROOT, 'counterfactuals_512'),
+        counterfactual_dir=None,
         resume_from_checkpoint=None
     )
     
