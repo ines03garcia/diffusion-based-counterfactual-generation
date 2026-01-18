@@ -9,6 +9,7 @@ import numpy as np
 import argparse
 import os
 from tqdm import trange, tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import time
 
@@ -163,6 +164,17 @@ def repaint_jump_step(x_t, current_step, jump_n_sample, diffusion_steps, diffusi
     return x_t, current_step
 
 
+def _load_single_image_mask(idx, image_path, mask_path, example_name, device):
+    """Helper function to load a single image and mask pair."""
+    try:
+        x0 = load_image(image_path)
+        H, W = x0.shape[-2], x0.shape[-1]
+        mask = load_mask(mask_path, (H, W), device="cpu")  # Load to CPU first
+        return idx, x0, mask, None
+    except Exception as e:
+        return idx, None, None, str(e)
+
+
 def repaint_inpaint_batch(
         image_paths: list,
         mask_paths: list,
@@ -190,40 +202,50 @@ def repaint_inpaint_batch(
     if debugging:
         logger.log(f"---[RePaint] Processing batch of {batch_size} images---")
 
-    # Load all images and masks in the batch
+    # Load all images and masks in parallel
     x0_list = []
     mask_list = []
     valid_indices = []
     
-    for idx, (image_path, mask_path, example_name) in enumerate(zip(image_paths, mask_paths, example_names)):
-        try:
-            x0 = load_image(image_path).to(device)
-            H, W = x0.shape[-2], x0.shape[-1]
-            mask = load_mask(mask_path, (H, W), device=device)
+    with ThreadPoolExecutor(max_workers=min(8, batch_size)) as executor:
+        futures = {
+            executor.submit(_load_single_image_mask, idx, img_path, mask_path, name, device): idx
+            for idx, (img_path, mask_path, name) in enumerate(zip(image_paths, mask_paths, example_names))
+        }
+        
+        results = []
+        for future in as_completed(futures):
+            results.append(future.result())
+        
+        # Sort by original index to maintain order
+        results.sort(key=lambda x: x[0])
+        
+        for idx, x0, mask, error in results:
+            if error is not None:
+                logger.log(f"Error loading {image_paths[idx]} or {mask_paths[idx]}: {error}")
+                continue
             
+            # Keep on CPU for now
             x0_list.append(x0)
             mask_list.append(mask)
             valid_indices.append(idx)
             
             if debugging:
+                example_name = example_names[idx]
                 sample_output_dir = os.path.join(debugging_dir, example_name.split(".")[0])
                 os.makedirs(sample_output_dir, exist_ok=True)
 
                 save_image(x0, os.path.join(sample_output_dir, "input.png"))
                 save_image(mask, os.path.join(sample_output_dir, "mask.png"))
-                draw_bbox(image_path, example_name, os.path.join(sample_output_dir, "input_with_bbox.png"))
-                
-        except Exception as e:
-            logger.log(f"Error loading {image_path} or {mask_path}: {e}")
-            continue
+                draw_bbox(image_paths[idx], example_name, os.path.join(sample_output_dir, "input_with_bbox.png"))
     
     if len(x0_list) == 0:
         logger.log("No valid images in batch, skipping.")
         return
     
-    # Stack into batched tensors
-    x0_batch = torch.cat(x0_list, dim=0)  # (B, 1, H, W)
-    mask_batch = torch.cat(mask_list, dim=0)  # (B, 1, H, W)
+    # Stack into batched tensors on CPU, then move to GPU
+    x0_batch = torch.cat(x0_list, dim=0).to(device)  # (B, 1, H, W)
+    mask_batch = torch.cat(mask_list, dim=0).to(device)  # (B, 1, H, W)
     
     # Start from noise, project known region at T
     with torch.no_grad():
@@ -248,16 +270,9 @@ def repaint_inpaint_batch(
             # Project known region at current t
             x_t = project_known_region(diffusion, x0_batch, x_t, t, mask_batch, noise=known_noise)
 
-            # One denoising step - measure time for testing
-            step_start_time = time.time()
+            # One denoising step
             out = diffusion.p_sample(model, x_t, t)
             x_tm1 = out["sample"]
-            step_end_time = time.time()
-            step_time = step_end_time - step_start_time
-            
-            logger.log(f"[TEST] Denoising step at t={current_step} took {step_time:.4f} seconds (batch size: {x0_batch.shape[0]})")
-            logger.log(f"[TEST] Exiting after first step for testing")
-            return
 
             # Project at t-1 if not at the final step
             if current_step > 0:
@@ -322,6 +337,8 @@ def main():
         logger.log(f"Debugging mode enabled. Debugging outputs will be saved to {debugging_dir}")
 
     model, diffusion = load_model(args, device)
+    
+    logger.log(f"[INFO] Diffusion model loaded with {diffusion.num_timesteps} timesteps (timestep_respacing='{args.timestep_respacing}')")
 
     # Filter out already processed images if resume_repaint is enabled
     if args.resume_repaint:
@@ -362,7 +379,7 @@ def main():
             batch_image_paths, 
             batch_mask_paths, 
             batch_names, 
-            args.diffusion_steps, 
+            diffusion.num_timesteps,  # Use actual timesteps from diffusion object
             model, 
             diffusion, 
             device, 
@@ -386,7 +403,9 @@ def create_argparser():
     df = pd.read_csv(metadata)
     anomalous_images = df['image_id'].tolist()
 
-    defaults = dict(
+    # Start with model defaults, then override
+    defaults = model_and_diffusion_defaults()
+    defaults.update(dict(
         image_size=512,
         in_channels=1,
         out_channels=1,
@@ -407,11 +426,10 @@ def create_argparser():
         jump_n_sample=-1,
         debugging=False,
         save_intermediate=False,
-        batch_size=16,
+        batch_size=4,
         resume_repaint=False,
         cf_dir=None,
-    )
-    defaults.update(model_and_diffusion_defaults())
+    ))
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
