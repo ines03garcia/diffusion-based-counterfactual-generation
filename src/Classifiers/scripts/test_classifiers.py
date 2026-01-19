@@ -1,3 +1,4 @@
+import logging
 import torch
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
@@ -14,9 +15,10 @@ import seaborn as sns
 import pandas as pd
 
 from src.config import DATASET_DIR, METADATA_ROOT
+from src.Classifiers.aux_scripts import logger
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
-from src.Classifiers.scripts.vision_transformer import VisionTransformerClassifier
-from src.Classifiers.scripts.convNeXt import ConvNeXtClassifier
+from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
+from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 
 
 def create_test_transforms():
@@ -203,50 +205,47 @@ def save_detailed_results(predictions, probabilities, targets, image_names, save
         return pd.DataFrame()
 
 
-def print_metrics_summary(metrics):
+def log_metrics_summary(log, metrics):
     """Print a comprehensive metrics summary"""
-    print("\n" + "="*50)
-    print("           TEST SET RESULTS")
-    print("="*50)
-    print(f"Accuracy:     {metrics['accuracy']:.4f}")
-    print(f"Precision:    {metrics['precision']:.4f}")
-    print(f"Recall:       {metrics['recall']:.4f}")
-    print(f"F1-Score:     {metrics['f1_score']:.4f}")
-    print(f"Specificity:  {metrics['specificity']:.4f}")
-    print(f"AUC:          {metrics['auc']:.4f}")
-    print("\nConfusion Matrix:")
-    print(f"                 Predicted")
-    print(f"              Healthy  Anomalous")
-    print(f"Actual Healthy    {metrics['true_negatives']:4d}      {metrics['false_positives']:4d}")
-    print(f"    Anomalous     {metrics['false_negatives']:4d}      {metrics['true_positives']:4d}")
-    print("="*50)
+    log.debug("\n" + "="*50)
+    log.debug("           TEST SET RESULTS")
+    log.debug("="*50)
+    log.debug(f"Accuracy:     {metrics['accuracy']:.4f}")
+    log.debug(f"Precision:    {metrics['precision']:.4f}")
+    log.debug(f"Recall:       {metrics['recall']:.4f}")
+    log.debug(f"F1-Score:     {metrics['f1_score']:.4f}")
+    log.debug(f"Specificity:  {metrics['specificity']:.4f}")
+    log.debug(f"AUC:          {metrics['auc']:.4f}")
+    log.debug("\nConfusion Matrix:")
+    log.debug(f"                 Predicted")
+    log.debug(f"              Healthy  Anomalous")
+    log.debug(f"Actual Healthy    {metrics['true_negatives']:4d}      {metrics['false_positives']:4d}")
+    log.debug(f"    Anomalous     {metrics['false_negatives']:4d}      {metrics['true_positives']:4d}")
+    log.debug("="*50)
 
 
-def load_model(model_name, checkpoint_path, device, num_classes=1):
+def load_model(model_name, checkpoint_path, device, num_classes=1, log=None):
     """
-    Load a model based on the model name (vit or convnext)
-    
     Args:
-        model_name (str): Name of the model ('vit' or 'convnext')
+        model_name (str): Name of the model ('vit', 'convnext' or 'fpn-mil')
         checkpoint_path (str): Path to the model checkpoint
         device (torch.device): Device to load the model on
         num_classes (int): Number of output classes (default: 1 for binary classification)
     
     Returns:
         torch.nn.Module: Loaded model
-        dict: Checkpoint dictionary
     """
     # Load checkpoint
-    print(f"Loading checkpoint from: {checkpoint_path}")
+    log.info(f"Loading checkpoint from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
     # Create model based on model name
     model_name = model_name.lower()
     if model_name == 'vit':
-        print("Loading Vision Transformer model...")
+        log.info("Loading Vision Transformer model...")
         model = VisionTransformerClassifier(num_classes=num_classes, pretrained=False).to(device)
     elif model_name == 'convnext':
-        print("Loading ConvNeXt model...")
+        log.info("Loading ConvNeXt model...")
         model = ConvNeXtClassifier(num_classes=num_classes, pretrained=False).to(device)
     else:
         raise ValueError(f"Unknown model name: {model_name}. Supported models: 'vit', 'convnext'")
@@ -254,79 +253,26 @@ def load_model(model_name, checkpoint_path, device, num_classes=1):
     # Load state dict
     model.load_state_dict(checkpoint['model_state_dict'])
     
-    # Print checkpoint info
-    if 'epoch' in checkpoint:
-        print(f"Checkpoint from epoch: {checkpoint['epoch'] + 1}")
-    if 'val_acc' in checkpoint:
-        print(f"Validation accuracy: {checkpoint['val_acc']:.4f}")
-    
-    return model, checkpoint
+    return model
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Test classifiers on VinDrMammo test set')
-    parser.add_argument('--model_type', type=str, required=True, choices=['vit', 'convnext'],
-                       help='Type of model to load (vit or convnext)')
-    parser.add_argument('--checkpoint_path', type=str, required=True,
-                       help='Path to the trained model checkpoint')
-    parser.add_argument('--data_dir', type=str, default=DATASET_DIR,
-                       help='Root directory containing the data')
-    parser.add_argument('--metadata_path', type=str, 
-                       default=os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv'),
-                       help='Path to the metadata CSV file')
-    parser.add_argument('--batch_size', type=int, default=32,
-                       help='Batch size for testing')
-    parser.add_argument('--num_workers', type=int, default=4,
-                       help='Number of workers for data loading')
-    parser.add_argument('--output_dir', type=str, default='/projects/F202507605CPCAA0/inescgarcia/thesis/results/test_results',
-                       help='Directory to save test results')
-    parser.add_argument('--experiment_name', type=str, default=None,
-                       help='Name for this test run (will be inferred from checkpoint if not provided)')
-    parser.add_argument('--anomaly_type', type=str, default='birads', 
-                       choices=['birads', 'mass', 'calcification'],
-                       help='Type of anomaly classification (birads, mass, or calcification)')
-    
-    args = parser.parse_args()
-    
-    # Create output directory
-    if args.experiment_name is None:
-        # Infer experiment name from checkpoint path
-        checkpoint_name = os.path.basename(args.checkpoint_path).replace('.pth', '')
-        
-        # Check if running in SLURM environment and include job ID
-        slurm_job_id = os.environ.get('SLURM_JOB_ID')
-        if slurm_job_id:
-            args.experiment_name = f"test_{checkpoint_name}_job_{slurm_job_id}"
-        else:
-            args.experiment_name = f"test_{checkpoint_name}"
-    
-    # Make output_dir absolute
-    output_dir = os.path.abspath(os.path.join(args.output_dir, args.experiment_name))
-    print(f"Working directory: {os.getcwd()}")
-    print(f"Absolute output directory: {output_dir}")
-    
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-        print(f"Output directory created/verified: {output_dir}")
-        
-        # Test write permissions
-        test_file = os.path.join(output_dir, 'test_write.tmp')
-        with open(test_file, 'w') as f:
-            f.write('test')
-        os.remove(test_file)
-        print("Write permissions verified")
-        
-    except Exception as e:
-        print(f"Error with output directory: {e}")
-        print(f"Attempted path: {output_dir}")
-        raise
+    args = create_argparser().parse_args()
+
+    output_dir = logger.Logger.configure(experiment_type=f"classification_{args.model_type}")
+
+    if args.debugging:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    log = logger.Logger(log_dir=output_dir, log_file='training.log', level=level)
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    log.info(f"Using device: {device}")
     
     # Load model
-    model, checkpoint = load_model(args.model_type, args.checkpoint_path, device, num_classes=1)
+    model = load_model(args.model_type, args.checkpoint_path, device, num_classes=1, log=log)
     
     # Create test dataset
     test_transform = create_test_transforms()
@@ -336,12 +282,11 @@ def main():
         metadata_path=args.metadata_path,
         split="test",
         transform=test_transform,
-        use_counterfactuals=False,  # Don't use counterfactuals for testing
-        anomaly_type=args.anomaly_type
+        use_counterfactuals=False  # Don't use counterfactuals for testing
     )
     
-    print(f"\nTest dataset info:")
-    print(test_dataset.get_split_info())
+    log.debug(f"\nTest dataset info:")
+    log.debug(test_dataset.get_split_info())
     
     # Create test loader
     test_loader = DataLoader(
@@ -353,14 +298,15 @@ def main():
     )
     
     # Run testing
-    print(f"\nTesting model on {len(test_dataset)} images...")
+    log.info(f"\nTesting model on {len(test_dataset)} images...")
     predictions, probabilities, targets, image_names = test_model(model, test_loader, device)
     
     # Calculate metrics
     metrics = calculate_metrics(predictions, probabilities, targets)
     
     # Print results
-    print_metrics_summary(metrics)
+    if args.debugging:
+        log_metrics_summary(log, metrics)
     
     # Save metrics to JSON
     try:
@@ -458,5 +404,27 @@ def main():
     print("="*50)
 
 
+def create_argparser():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--model_type', type=str, required=True, choices=['convnext', 'vit'],
+                       help='Type of model to load (convnext or vit)')
+    parser.add_argument('--checkpoint_path', type=str, required=True,
+                       help='Path to the trained model checkpoint')
+    parser.add_argument('--data_dir', type=str, default=DATASET_DIR,
+                       help='Root directory containing the data')
+    parser.add_argument('--metadata_path', type=str, 
+                       default=os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv'),
+                       help='Path to the metadata CSV file')
+    parser.add_argument('--batch_size', type=int, default=32,
+                       help='Batch size for testing')
+    parser.add_argument('--num_workers', type=int, default=4,
+                       help='Number of workers for data loading')
+    parser.add_argument('--debugging', action='store_true', default=False,
+                       help='Enable debugging mode with detailed logs')
+    return parser
+
+
 if __name__ == "__main__":
     main()
+
