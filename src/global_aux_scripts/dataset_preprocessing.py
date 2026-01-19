@@ -1,7 +1,7 @@
 # Prepare dataset by running CLAHE on all images
 import cv2
 import os
-from code.config import DATASET_DIR, IMAGES_ROOT
+from src.config import DATASET_DIR, IMAGES_ROOT
 
 def apply_clahe_to_image(image_path, output_path, clip_limit=2.0, tile_grid_size=(8, 8)):
     # Read the image
