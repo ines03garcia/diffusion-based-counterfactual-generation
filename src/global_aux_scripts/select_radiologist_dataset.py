@@ -7,14 +7,79 @@ import os
 import pandas as pd
 import shutil
 from pathlib import Path
+import cv2
+import numpy as np
+from PIL import Image
 from src.config import IMAGES_ROOT, METADATA_ROOT
+
+
+def draw_bbox(image_path, image_id, output_path, metadata_df):
+    """
+    Draw bounding boxes on an image based on metadata annotations.
+    
+    Args:
+        image_path: Path to the source image
+        image_id: Image identifier to look up in metadata
+        output_path: Path where the image with bounding boxes will be saved
+        metadata_df: DataFrame containing the annotation metadata
+    """
+    # Find the row for this image
+    image_row = metadata_df[metadata_df['image_id'] == image_id]
+    
+    if image_row.empty:
+        print(f"  WARNING: No annotations found for image: {image_id}")
+        # Just copy the original if no annotations
+        shutil.copy2(image_path, output_path)
+        return
+    
+    row = image_row.iloc[0]
+    
+    # Load image using PIL and convert to numpy
+    img = Image.open(image_path).convert('L')  # Convert to grayscale
+    img_np = np.array(img)
+    
+    # Convert to RGB for colored bounding boxes (optional, or keep grayscale)
+    img_rgb = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
+    
+    # Parse the coordinate columns into a dictionary (avoids SettingWithCopyWarning)
+    coords = {}
+    for col in ['resized_xmin', 'resized_ymin', 'resized_xmax', 'resized_ymax']:
+        value = row[col]
+        coords[col] = eval(value) if isinstance(value, str) else value
+    
+    # Determine number of anomalies
+    if isinstance(coords['resized_xmin'], (list, tuple)):
+        nr_anomalies = len(coords['resized_xmin'])
+    else:
+        # Single value, convert to list
+        nr_anomalies = 1
+        for col in coords:
+            coords[col] = [coords[col]]
+    
+    for i in range(nr_anomalies):
+        x_min = int(coords['resized_xmin'][i])
+        y_min = int(coords['resized_ymin'][i])
+        x_max = int(coords['resized_xmax'][i])
+        y_max = int(coords['resized_ymax'][i])
+        
+        # Skip if coordinates are 0 (no finding)
+        if x_min == 0 and y_min == 0 and x_max == 0 and y_max == 0:
+            continue
+        
+        # Draw rectangle in red (for visibility on grayscale)
+        cv2.rectangle(img_rgb, (x_min, y_min), (x_max, y_max), (255, 0, 0), 2)
+    
+    # Convert back to PIL and save
+    img_with_bbox = Image.fromarray(img_rgb)
+    img_with_bbox.save(output_path)
 
 
 def main():
     # Define paths
     images_folder = Path(IMAGES_ROOT)/ "counterfactuals_updated"
     metadata_file = Path(METADATA_ROOT)/ "resized_df_counterfactuals.csv"
-    output_folder = Path(IMAGES_ROOT)/ "counterfactuals_radiologist"
+    output_folder = Path(IMAGES_ROOT)/ "radiologist/counterfactuals_radiologist"
+    output_bb_folder = Path(IMAGES_ROOT)/ "radiologist/bounding_boxes_radiologist"
     output_csv = Path(METADATA_ROOT)/ "radiologist_dataset.csv"
     
     # Load metadata
@@ -147,17 +212,27 @@ def main():
     
     # Create output folder
     output_folder.mkdir(parents=True, exist_ok=True)
+    output_bb_folder.mkdir(parents=True, exist_ok=True)
     print(f"\nCopying images to {output_folder}...")
+    print(f"Creating images with bounding boxes in {output_bb_folder}...")
     
-    # Copy images
+    # Copy images and create versions with bounding boxes
     radiologist_id = 0
     for image_id in df_selected['image_id']:
         src = images_folder / image_id
         dst = output_folder / f"{radiologist_id}_{image_id}"
+        dst_bb = output_bb_folder / f"{radiologist_id}_{image_id}"
+        
+        # Copy original counterfactual
         shutil.copy2(src, dst)
+        
+        # Create version with bounding boxes
+        draw_bbox(src, image_id, dst_bb, df)
+        
         radiologist_id += 1
     
     print(f"Copied {len(df_selected)} images")
+    print(f"Created {len(df_selected)} images with bounding boxes")
     
     # Save CSV
     output_csv.parent.mkdir(parents=True, exist_ok=True)
