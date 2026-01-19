@@ -255,6 +255,60 @@ def load_model(model_name, checkpoint_path, device, num_classes=1, log=None):
     
     return model
 
+def save_metrics_json(log, metrics, output_dir, args):
+    try:
+        metrics_to_save = {k: v for k, v in metrics.items() if k != 'confusion_matrix'}
+        # Convert numpy types to native Python types for JSON serialization
+        for key, value in metrics_to_save.items():
+            if hasattr(value, 'item'):  # numpy scalar
+                metrics_to_save[key] = value.item()
+            elif isinstance(value, np.ndarray):
+                metrics_to_save[key] = value.tolist()
+        
+        metrics_to_save['confusion_matrix'] = metrics['confusion_matrix'].tolist()
+        
+        metrics_path = os.path.abspath(os.path.join(output_dir, 'test_metrics.json'))
+        with open(metrics_path, 'w') as f:
+            json.dump(metrics_to_save, f, indent=2)
+        log.debug(f"Test metrics saved to: {metrics_path}")
+        log.debug(f"File exists: {os.path.exists(metrics_path)}")
+    except Exception as e:
+        log.error(f"Error saving test metrics: {e}")
+        import traceback
+        traceback.print_exc()
+
+def save_test_arguments(log, args, output_dir):
+    try:
+        args_path = os.path.abspath(os.path.join(output_dir, 'test_args.json'))
+        with open(args_path, 'w') as f:
+            json.dump(vars(args), f, indent=2)
+        log.info(f"Test arguments saved to: {args_path}")
+        log.info(f"File exists: {os.path.exists(args_path)}")
+    except Exception as e:
+        log.error(f"Error saving test arguments: {e}")
+        import traceback
+        traceback.print_exc()
+
+def log_saved_files_summary(log, output_dir):
+    log.info(f"\nResults saved to: {output_dir}")
+    log.info("Files created:")
+    log.info("  - test_metrics.json: Overall performance metrics")
+    log.info("  - detailed_results.csv: Per-image predictions and probabilities")
+    log.info("  - confusion_matrix.png: Confusion matrix visualization")
+    log.info("  - roc_curve.png: ROC curve")
+    log.info("  - probability_distribution.png: Distribution of predicted probabilities")
+    log.info("  - test_args.json: Test arguments used")
+
+
+def log_class_summary(log, results_df):
+    # Print class-wise performance
+    log.info(f"\nClass-wise summary:")
+    class_summary = results_df.groupby('true_class').agg({
+        'correct': ['count', 'sum', 'mean'],
+        'probability': ['mean', 'std']
+    }).round(4)
+    log.info(f"\n{class_summary}")
+
 
 def main():
     args = create_argparser().parse_args()
@@ -304,104 +358,44 @@ def main():
     # Calculate metrics
     metrics = calculate_metrics(predictions, probabilities, targets)
     
-    # Print results
+    # Log results
     if args.debugging:
         log_metrics_summary(log, metrics)
     
     # Save metrics to JSON
-    try:
-        metrics_to_save = {k: v for k, v in metrics.items() if k != 'confusion_matrix'}
-        # Convert numpy types to native Python types for JSON serialization
-        for key, value in metrics_to_save.items():
-            if hasattr(value, 'item'):  # numpy scalar
-                metrics_to_save[key] = value.item()
-            elif isinstance(value, np.ndarray):
-                metrics_to_save[key] = value.tolist()
-        
-        metrics_to_save['confusion_matrix'] = metrics['confusion_matrix'].tolist()
-        
-        metrics_path = os.path.abspath(os.path.join(output_dir, 'test_metrics.json'))
-        with open(metrics_path, 'w') as f:
-            json.dump(metrics_to_save, f, indent=2)
-        print(f"Test metrics saved to: {metrics_path}")
-        print(f"File exists: {os.path.exists(metrics_path)}")
-    except Exception as e:
-        print(f"Error saving test metrics: {e}")
-        import traceback
-        traceback.print_exc()
+    save_metrics_json(log, metrics, output_dir, args)
     
     # Save detailed results
-    print("\nSaving detailed results...")
-    results_df = save_detailed_results(predictions, probabilities, targets, image_names,
-                                     os.path.join(output_dir, 'detailed_results.csv'))
+    log.info("\nSaving detailed results...")
+    results_df = save_detailed_results(predictions, probabilities, targets, image_names, os.path.join(output_dir, 'detailed_results.csv'))
     
     # Create visualizations
-    print("\nCreating visualizations...")
+    log.info("\nCreating visualizations...")
     class_names = ['Healthy', 'Anomalous']
     
     # Confusion matrix
-    print("Plotting confusion matrix...")
-    plot_confusion_matrix(metrics['confusion_matrix'], class_names,
-                         os.path.join(output_dir, 'confusion_matrix.png'))
+    log.info("Plotting confusion matrix...")
+    plot_confusion_matrix(metrics['confusion_matrix'], class_names,os.path.join(output_dir, 'confusion_matrix.png'))
     
     # ROC curve
-    print("Plotting ROC curve...")
+    log.info("Plotting ROC curve...")
     plot_roc_curve(targets, probabilities,
                    os.path.join(output_dir, 'roc_curve.png'))
     
     # Probability distribution
-    print("Plotting probability distribution...")
+    log.info("Plotting probability distribution...")
     plot_probability_distribution(probabilities, targets,
                                 os.path.join(output_dir, 'probability_distribution.png'))
     
     # Save test arguments
-    try:
-        args_path = os.path.abspath(os.path.join(output_dir, 'test_args.json'))
-        with open(args_path, 'w') as f:
-            json.dump(vars(args), f, indent=2)
-        print(f"Test arguments saved to: {args_path}")
-        print(f"File exists: {os.path.exists(args_path)}")
-    except Exception as e:
-        print(f"Error saving test arguments: {e}")
-        import traceback
-        traceback.print_exc()
+    log.info("\nSaving test arguments...")
+    save_test_arguments(log, args, output_dir)
     
-    # Print summary of saved files
-    print(f"\nResults saved to: {output_dir}")
-    print("Files created:")
-    print("  - test_metrics.json: Overall performance metrics")
-    print("  - detailed_results.csv: Per-image predictions and probabilities")
-    print("  - confusion_matrix.png: Confusion matrix visualization")
-    print("  - roc_curve.png: ROC curve")
-    print("  - probability_distribution.png: Distribution of predicted probabilities")
-    print("  - test_args.json: Test arguments used")
-    
-    # Print some sample predictions
-    print(f"\nSample predictions (first 10 images):")
-    print(results_df[['image_name', 'true_class', 'predicted_class', 'probability', 'correct']].head(10).to_string(index=False))
-    
-    # Print class-wise performance
-    print(f"\nClass-wise summary:")
-    class_summary = results_df.groupby('true_class').agg({
-        'correct': ['count', 'sum', 'mean'],
-        'probability': ['mean', 'std']
-    }).round(4)
-    print(class_summary)
-    
-    # Final verification of created files
-    print(f"\n" + "="*50)
-    print("FINAL FILE VERIFICATION")
-    print("="*50)
-    print(f"Output directory: {output_dir}")
-    if os.path.exists(output_dir):
-        files = os.listdir(output_dir)
-        print(f"Files in output directory: {files}")
-        for file in files:
-            file_path = os.path.join(output_dir, file)
-            print(f"  {file}: {os.path.getsize(file_path)} bytes")
-    else:
-        print("ERROR: Output directory does not exist!")
-    print("="*50)
+    # Log saved files summary
+    log_saved_files_summary(log, output_dir)
+
+    # Log class-wise summary
+    log_class_summary(log, results_df)
 
 
 def create_argparser():
