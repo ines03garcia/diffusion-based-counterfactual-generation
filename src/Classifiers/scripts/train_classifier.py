@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 
 import torch
@@ -24,7 +25,11 @@ def main():
         args.experiment_name = f"{args.model_type}_classification"
     
     output_dir = logger.Logger.configure(experiment_type=args.model_type)
-    log = logger.Logger(log_dir=output_dir, log_file='training.log')
+    if args.debugging:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    log = logger.Logger(log_dir=output_dir, log_file='training.log', level=level)
     
     # Save arguments
     args_path = os.path.join(output_dir, 'args.json')
@@ -287,7 +292,8 @@ def create_argparser():
         use_counterfactuals=False,
         training_category=None,  # New: 'healthy', 'anomalous', 'anomalous_with_findings', or None
         counterfactual_dir=None,
-        resume_from_checkpoint=None
+        resume_from_checkpoint=None,
+        debugging=False
     )
     
     parser = argparse.ArgumentParser()
@@ -316,6 +322,7 @@ def create_argparser():
                        help='Filter training data by category')
     parser.add_argument('--counterfactual_dir', type=str, default=defaults['counterfactual_dir'])
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
+    parser.add_argument('--debugging', action='store_true', default=defaults['debugging'])
     
     return parser
 

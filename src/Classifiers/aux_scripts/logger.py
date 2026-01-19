@@ -20,6 +20,16 @@ class Logger:
             experiment_log_dir = "Classifier_logs/ConvNeXt"
         elif experiment_type == "vit":
             experiment_log_dir = "Classifier_logs/ViT"
+        elif experiment_type == "fpn-mil":
+            experiment_log_dir = "Classifier_logs/FPN_MIL"
+
+        elif experiment_type == "classification_convnext":
+            experiment_log_dir = "Classifier_logs/Classification_ConvNeXt"
+        elif experiment_type == "classification_vit":
+            experiment_log_dir = "Classifier_logs/Classification_ViT"
+        elif experiment_type == "classification_fpn-mil":
+            experiment_log_dir = "Classifier_logs/Classification_FPN_MIL"
+
         else:
             experiment_log_dir = "other"
         
@@ -39,10 +49,10 @@ class Logger:
         
         return log_dir
     
-    def __init__(self, log_dir='logs', log_file='training.log'):
+    def __init__(self, log_dir='logs', log_file='training.log', level=logging.INFO):
         os.makedirs(log_dir, exist_ok=True)
         self.logger = logging.getLogger('ModelLogger')
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(level)
         
         file_handler = logging.FileHandler(os.path.join(log_dir, log_file))
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
