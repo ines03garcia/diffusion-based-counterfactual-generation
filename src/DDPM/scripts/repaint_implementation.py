@@ -418,7 +418,7 @@ def create_argparser():
         use_checkpoint=True,
         diffusion_steps=1000,
         noise_schedule="linear",
-        timestep_respacing="",
+        timestep_respacing="500",
         model_path=os.path.join(MODELS_ROOT, "model008000.pt"),
         examples=anomalous_images,
         use_fp16=False,

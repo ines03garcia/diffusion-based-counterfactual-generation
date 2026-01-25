@@ -72,17 +72,15 @@ def calculate_metrics(predictions, probabilities, targets):
     # Confusion Matrix
     cm = confusion_matrix(targets, predictions)
     
-    # Specificity and Sensitivity
+    # Specificity
     tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-    sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
     
     metrics = {
         'accuracy': accuracy,
         'precision': precision,
         'recall': recall,
         'f1_score': f1,
-        'sensitivity': sensitivity,
         'specificity': specificity,
         'auc': auc,
         'confusion_matrix': cm,
