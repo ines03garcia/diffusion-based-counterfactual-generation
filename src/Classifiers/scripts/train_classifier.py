@@ -17,6 +17,52 @@ from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
 
 
+def create_optimizer(model, args, log):
+    """Create optimizer with appropriate learning rates for all model parameters.
+    
+    This function creates the optimizer including ALL model parameters (regardless of requires_grad),
+    so that when layers are unfrozen mid-training, they will automatically be included with the
+    correct learning rates.
+    
+    Args:
+        model: The neural network model
+        args: Training arguments
+        log: Logger instance
+    
+    Returns:
+        optimizer: Configured AdamW optimizer
+    """
+    # Differential learning rates
+    if args.use_differential_lr:
+        backbone_params = []
+        classifier_params = []
+        
+        # Include ALL parameters (not just trainable ones)
+        for name, param in model.named_parameters():
+            if 'classifier' in name or 'heads' in name:
+                classifier_params.append(param)
+            else:
+                backbone_params.append(param)
+        
+        optimizer = optim.AdamW([
+            {'params': backbone_params, 'lr': args.lr * 0.1},  # Lower LR for backbone
+            {'params': classifier_params, 'lr': args.lr}  # Full LR for classifier
+        ], weight_decay=args.weight_decay)
+        
+        log.info(f"Using differential learning rates: backbone LR={args.lr * 0.1:.2e}, classifier LR={args.lr:.2e}")
+    
+    # Uniform learning rate for all parameters
+    else:
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=args.lr,
+            weight_decay=args.weight_decay
+        )
+        log.info(f"Using uniform learning rate: {args.lr:.2e}")
+    
+    return optimizer
+
+
 def main():
     args = create_argparser().parse_args()
     
@@ -123,34 +169,8 @@ def main():
     else:
         log.info("No layers frozen - training all parameters from start")
     
-    # Differential learning rates
-    if args.use_differential_lr:
-        backbone_params = []
-        classifier_params = []
-        
-        for name, param in model.named_parameters():
-            if param.requires_grad:  # Trainable parameters
-                if 'classifier' in name or 'heads' in name:
-                    classifier_params.append(param)
-                else:
-                    backbone_params.append(param)
-        
-        optimizer = optim.AdamW([
-            {'params': backbone_params, 'lr': args.lr * 0.1},  # Lower LR for backbone
-            {'params': classifier_params, 'lr': args.lr}  # Full LR for classifier
-        ], weight_decay=args.weight_decay)
-        
-        log.info(f"Using differential learning rates: backbone LR={args.lr * 0.1:.2e}, classifier LR={args.lr:.2e}")
-    
-    # Uniform learning rate for all parameters
-    else:
-        optimizer = optim.AdamW(
-            model.parameters(),
-            lr=args.lr,
-            weight_decay=args.weight_decay
-        )
-        log.info(f"Using uniform learning rate: {args.lr:.2e}")
-    
+    # Create optimizer with appropriate learning rates
+    optimizer = create_optimizer(model, args, log)
 
     # Calculate class weights from training dataset
     class_dist = train_dataset.get_class_distribution()
