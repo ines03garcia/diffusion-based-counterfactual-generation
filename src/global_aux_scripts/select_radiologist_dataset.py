@@ -76,7 +76,7 @@ def draw_bbox(image_path, image_id, output_path, metadata_df):
 
 def main():
     # Define paths
-    images_folder = Path(IMAGES_ROOT)/ "counterfactuals_updated"
+    images_folder = Path(IMAGES_ROOT)/ "repaint_results"
     metadata_file = Path(METADATA_ROOT)/ "resized_df_counterfactuals.csv"
     output_folder = Path(IMAGES_ROOT)/ "radiologist/counterfactuals_radiologist"
     output_bb_folder = Path(IMAGES_ROOT)/ "radiologist/bounding_boxes_radiologist"
