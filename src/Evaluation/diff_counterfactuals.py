@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import os
 
-counterfactual_dir = "../../data/images/counterfactuals"
-images_base_dir = "../../data/images/VinDr-Mammo-Clip-resized-512"
+counterfactual_dir = "../../data/images/repaint_results"
+images_base_dir = "../../data/images/VinDr-Mammo-Clip-CLAHE-512"
 masks_dir = "../../data/images/masks_512"
 
 mse_total = 0

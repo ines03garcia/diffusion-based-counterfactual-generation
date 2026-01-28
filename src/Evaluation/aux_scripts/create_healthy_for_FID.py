@@ -2,9 +2,9 @@ import pandas as pd
 import shutil
 import os
 
-metadata_csv= "../../data/metadata/resized_df_counterfactuals.csv"
-images_base_dir = "../../data/VinDr-Mammo-Clip-resized-512"
-original_ds_for_FID = "../../data/healthy_for_FID"
+metadata_csv= "../../../data/metadata/resized_df_counterfactuals.csv"
+images_base_dir = "../../../data/images/VinDr-Mammo-Clip-CLAHE-512"
+original_ds_for_FID = "../../../data/images/healthy_for_FID"
 
 metadata_df = pd.read_csv(metadata_csv)
 print(f"Loaded {len(metadata_df)} rows from metadata")
