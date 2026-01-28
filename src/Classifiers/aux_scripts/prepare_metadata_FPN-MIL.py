@@ -3,7 +3,7 @@ import os
 from config import ROOT, METADATA_ROOT
 
 # Define variable
-with_counterfactuals = False
+with_counterfactuals = True
 
 # Define paths
 base_path = ROOT
@@ -27,7 +27,7 @@ if with_counterfactuals:
 
             original_image_id = cf_row['image_id']
             if original_image_id.endswith('.png'):
-                cf_row['image_id'] = original_image_id.replace('.png', 'cf.png')
+                cf_row['image_id'] = original_image_id.replace('.png', '_cf.png')
 
             cf_row['finding_categories'] = "[""['No Finding']""]"
             cf_row['finding_birads'] = "[0]"
