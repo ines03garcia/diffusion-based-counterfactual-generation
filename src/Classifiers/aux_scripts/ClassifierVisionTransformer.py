@@ -49,4 +49,4 @@ class VisionTransformerClassifier(nn.Module):
                            f"Please download them manually or ensure internet connectivity.")
     
     def forward(self, x):
-        return self.vit(x).squeeze(-1)
+        return self.vit(x).squeeze(-1) # Remove squeeze for grad cam calculation

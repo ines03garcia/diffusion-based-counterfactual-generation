@@ -76,17 +76,15 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 for model_type in ['ConvNeXt', 'ViT']:
     for checkpoint_type in ['_no_cf', '_cf']:
-
         checkpoint_path = os.path.join(MODELS_ROOT, f'{model_type}{checkpoint_type}.pth')
         model = model_load(checkpoint_path, model_type, device)
 
-        model_type = model_type.lower()
         # Select the target layer for GradCAM using correct attribute names
-        if model_type == 'convnext':
+        if model_type.lower() == 'convnext':
             last_cnblock = model.convnext.features[-1][-1]
             target_layers = [last_cnblock.block[0]]
 
-        elif model_type == 'vit':
+        elif model_type.lower() == 'vit':
             target_layers = [model.vit.encoder.layers[-1].ln_1]
 
         print(f"Using model: {model_type} with checkpoint: {checkpoint_type}")
@@ -110,7 +108,7 @@ for model_type in ['ConvNeXt', 'ViT']:
                 "model": model,
                 "target_layers": target_layers
             }
-            if model_type == 'vit':
+            if model_type.lower() == 'vit':
                 gradcam_args["reshape_transform"] = reshape_transform
 
             # Get model prediction for this image
@@ -171,7 +169,7 @@ for model_type in ['ConvNeXt', 'ViT']:
         global_iou = np.mean(all_ious) if all_ious else float('nan')
         n_healthy = len(healthy_ious)
         n_nonhealthy = len(nonhealthy_ious)
-        log_dir = os.path.join(DATA_ROOT, 'gradcam_logs')
+        log_dir = os.path.join(DATA_ROOT, 'logs/gradcam_logs')
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, f'{model_type}{checkpoint_type}_iou.txt')
         with open(log_path, 'w') as f:
