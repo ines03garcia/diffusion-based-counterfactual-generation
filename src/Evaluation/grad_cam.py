@@ -11,10 +11,11 @@ import cv2
 import numpy as np
 import math
 
-from src.Classifiers.scripts.convNeXt import ConvNeXtClassifier
-from src.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
+from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
+from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
 from src.config import DATASET_DIR, MASKS_DIR, IMAGES_ROOT, METADATA_ROOT, DATA_ROOT, MODELS_ROOT
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from src.Classifiers.aux_scripts.utils import create_transforms
 
 # Custom target for negative class (class 0)
 class NegativeLogitTarget:
@@ -56,18 +57,16 @@ def reshape_transform(x):
     assert H * W == N
     return x.reshape(B, H, W, C).permute(0, 3, 1, 2)  # [B, C, H, W]
 
-# Load test split of the dataset
-metadata_csv = os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv")
 _, val_transform = create_transforms("none") # No augmentation
 
 anomalous_with_findings_test_dataset = VinDrMammo_dataset(
     data_dir=DATASET_DIR,
-    metadata_path=metadata_csv,
+    metadata_path=os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv"),
     split="test",
     transform=val_transform,
     testing_category="anomalous_with_findings",
     testing_cf = False,
-    counterfactuals_dir = os.path.join(IMAGES_ROOT, "counterfactuals_512")
+    counterfactuals_dir = os.path.join(IMAGES_ROOT, "repaint_results")
 )
 
 print(f"Loaded test split: {len(anomalous_with_findings_test_dataset)} images")
@@ -75,12 +74,13 @@ print(f"Loaded test split: {len(anomalous_with_findings_test_dataset)} images")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-for model_type in ['convnext', 'vit']:
-    for checkpoint_type in ['no_cf', 'cf']:
+for model_type in ['ConvNeXt', 'ViT']:
+    for checkpoint_type in ['_no_cf', '_cf']:
 
-        checkpoint_path = os.path.join(MODELS_ROOT, f'{model_type}_{checkpoint_type}.pth')
+        checkpoint_path = os.path.join(MODELS_ROOT, f'{model_type}{checkpoint_type}.pth')
         model = model_load(checkpoint_path, model_type, device)
 
+        model_type = model_type.lower()
         # Select the target layer for GradCAM using correct attribute names
         if model_type == 'convnext':
             last_cnblock = model.convnext.features[-1][-1]
@@ -158,7 +158,7 @@ for model_type in ['convnext', 'vit']:
                         nonhealthy_ious.append(iou)
 
                     visualization = overlay_cam_on_image(rgb_img, grayscale_cam)
-                    output_dir = f'../../data/images/gradcam1/{model_type}_{checkpoint_type}'
+                    output_dir = f'../../data/images/gradcam2/{model_type}{checkpoint_type}'
                     os.makedirs(output_dir, exist_ok=True)
                     cv2.imwrite(f'{output_dir}/{img_name}', np.uint8(255 * visualization))
                 else:
@@ -173,7 +173,7 @@ for model_type in ['convnext', 'vit']:
         n_nonhealthy = len(nonhealthy_ious)
         log_dir = os.path.join(DATA_ROOT, 'gradcam_logs')
         os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, f'{model_type}_{checkpoint_type}_iou.txt')
+        log_path = os.path.join(log_dir, f'{model_type}{checkpoint_type}_iou.txt')
         with open(log_path, 'w') as f:
             f.write(f'Model: {model_type}\n')
             f.write(f'Checkpoint: {checkpoint_type}\n')

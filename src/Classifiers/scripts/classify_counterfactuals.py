@@ -1,9 +1,7 @@
 import os
 import logging
-import torchvision.transforms as transforms
 import torch
 import pandas as pd
-import numpy as np
 from tqdm import tqdm
 import argparse
 
@@ -12,14 +10,8 @@ from src.Classifiers.aux_scripts import logger
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
 from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
+from src.Classifiers.aux_scripts.utils import create_transforms
 
-def create_test_transforms():
-    """Create test transforms (no augmentation)"""
-    return transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
 
 # -----------------------------
 # Model loading
@@ -321,7 +313,7 @@ def main():
     log.info(f"Using device: {device}")
     
     # Create transforms
-    val_transform = create_test_transforms()
+    val_transform = create_transforms("none")
 
     # Determine checkpoint path
     if args.checkpoint_path:
