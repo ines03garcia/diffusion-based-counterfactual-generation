@@ -1,4 +1,6 @@
 import os
+import logging
+import torchvision.transforms as transforms
 import torch
 import pandas as pd
 import numpy as np
@@ -6,15 +8,23 @@ from tqdm import tqdm
 import argparse
 
 from src.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT, MODELS_ROOT
+from src.Classifiers.aux_scripts import logger
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
-from src.Classifiers.scripts.vision_transformer import VisionTransformerClassifier, create_transforms
-from src.Classifiers.scripts.convNeXt import ConvNeXtClassifier
+from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
+from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 
+def create_test_transforms():
+    """Create test transforms (no augmentation)"""
+    return transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
 
 # -----------------------------
 # Model loading
 # -----------------------------
-def model_load(checkpoint_path, model_type, device):
+def load_model(checkpoint_path, model_type, device, num_classes=1, log=None):
     """
     Load either ViT or ConvNeXt model based on model_type parameter.
     
@@ -22,14 +32,23 @@ def model_load(checkpoint_path, model_type, device):
         checkpoint_path (str): Path to the model checkpoint
         model_type (str): Either "vit" or "convnext" 
         device: PyTorch device (cuda/cpu)
+        num_classes (int): Number of output classes (default: 1 for binary classification)
+        log: Logger instance
     
     Returns:
         model: Loaded model ready for inference
     """
+    if log:
+        log.info(f"Loading checkpoint from: {checkpoint_path}")
+    
     if model_type.lower() == "vit":
-        model = VisionTransformerClassifier(num_classes=1, pretrained=False)
+        if log:
+            log.info("Loading Vision Transformer model...")
+        model = VisionTransformerClassifier(num_classes=num_classes, pretrained=False)
     elif model_type.lower() == "convnext":
-        model = ConvNeXtClassifier(num_classes=1, pretrained=False)
+        if log:
+            log.info("Loading ConvNeXt model...")
+        model = ConvNeXtClassifier(num_classes=num_classes, pretrained=False)
     else:
         raise ValueError(f"Unsupported model type: {model_type}. Use 'vit' or 'convnext'")
     
@@ -42,7 +61,6 @@ def model_load(checkpoint_path, model_type, device):
     
     model.to(device)
     model.eval()
-    print(f"Loaded {model_type.upper()} model from {checkpoint_path}")
     return model
 
 
@@ -50,6 +68,7 @@ def model_load(checkpoint_path, model_type, device):
 # Prediction helper
 # -----------------------------
 def predict(model, image, device):
+    """Predict on a single image"""
     with torch.no_grad():
         if image.ndim == 3:  # [C, H, W]
             image = image.unsqueeze(0) # [1, C, H, W]
@@ -60,70 +79,21 @@ def predict(model, image, device):
     return pred, prob  # 0 = healthy or 1 = anomalous, probability
 
 
-# -----------------------------
-# Arg parser
-# -----------------------------
-def create_argparser():
-    defaults = dict(
-        model_type="vit",
-        checkpoint_path=os.path.join(MODELS_ROOT, "vit_no_cf.pth"),
-        data_dir=DATASET_DIR,
-        metadata_dir=os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv"),
-        counterfactuals_dir=os.path.join(IMAGES_ROOT, "counterfactuals_512"),
-        batch_size=16,
-    )
-    parser = argparse.ArgumentParser(description="Classify counterfactual images")
-    for k, v in defaults.items():
-        parser.add_argument(f"--{k}", type=type(v), default=v)
-    return parser
-
-
-# -----------------------------
-# Main evaluation
-# -----------------------------
-def main():
-    # Parse command line arguments
-    args = create_argparser().parse_args()
+def evaluate_counterfactuals(model, dataset, device):
+    """
+    Evaluate counterfactuals by comparing original images with their counterfactual versions.
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    _, val_transform = create_transforms("none")
-
-    # Determine checkpoint path
-    if args.checkpoint_path:
-        checkpoint_path = args.checkpoint_path
-    else:
-        raise ValueError("Error: --checkpoint_path must be provided.")
+    Args:
+        model: Trained classifier model
+        dataset: Dataset containing anomalous images with counterfactuals
+        device: PyTorch device
     
-    # Load model using the new function
-    model = model_load(checkpoint_path, args.model_type, device)
-    
-    # Use the new flag-based system to load only anomalous test cases with findings
-    dataset = VinDrMammo_dataset(
-        data_dir=DATASET_DIR,
-        metadata_path=args.metadata_dir,
-        split="test",
-        testing_category="anomalous_with_findings",  # Only anomalous cases with counterfactuals
-        testing_cf=False,  # Don't include counterfactuals in the dataset, we'll load them separately
-        transform=val_transform,
-        counterfactuals_dir=args.counterfactuals_dir
-    )
-
-    print(f"Found {len(dataset)} test anomalous images with findings for evaluation")
-    print(f"Dataset configuration: {dataset.get_config_summary()}")
-
-    if len(dataset) == 0:
-        print("No test anomalous images with findings found. Exiting.")
-        return
-
+    Returns:
+        results (list): List of dictionaries containing evaluation results for each image
+    """
     results = []
-    total_images_processed = 0
-    originals_guessed_correctly = 0  # Original anomalous images correctly predicted as anomalous
-    counterfactuals_guessed_correctly = 0  # Counterfactuals correctly predicted as healthy
-    anomalous_switched_to_healthy = 0  # Originally anomalous images that switched to healthy in counterfactual
-    healthy_switched_to_anomalous = 0  # Originally healthy images that switched to anomalous in counterfactual
-
-    # Process each anomalous image and its counterfactual
-    for i in tqdm(range(len(dataset)), desc="Evaluating anomalous images and counterfactuals"):
+    
+    for i in tqdm(range(len(dataset)), desc="Evaluating counterfactuals"):
         try:
             # Get original image from dataset
             original_img, original_label_tensor, image_name = dataset[i]
@@ -145,26 +115,17 @@ def main():
             
             # Check if original was correctly classified as anomalous
             original_correct = (original_pred == original_label == 1)  # Should be anomalous (1)
-            if original_correct:
-                originals_guessed_correctly += 1
             
             # Check if counterfactual was correctly classified as healthy (expected label = 0)
             cf_correct = (cf_pred == 0) if cf_pred is not None else False
-            if cf_correct:
-                counterfactuals_guessed_correctly += 1
             
             # Check if image switched from anomalous to healthy (original pred was anomalous, cf pred is healthy)
             switched_to_healthy = (original_pred == 1 and cf_pred == 0) if cf_pred is not None else False
-            if switched_to_healthy:
-                anomalous_switched_to_healthy += 1
             
             # Check if image switched from healthy to anomalous (original pred was healthy, cf pred is anomalous)
             switched_to_anomalous = (original_pred == 0 and cf_pred == 1) if cf_pred is not None else False
-            if switched_to_anomalous:
-                healthy_switched_to_anomalous += 1
             
             # Get additional metadata for this image
-            sample_info = dataset.get_sample_info(i)
             image_row = dataset.df[dataset.df['image_id'] == image_name].iloc[0]
             
             # Store results
@@ -188,170 +149,229 @@ def main():
                 "has_counterfactual": cf_img is not None
             })
             
-            total_images_processed += 1
-            
         except Exception as e:
             print(f"Error processing image at index {i}: {e}")
             continue
+    
+    return results
 
-    # Calculate and display comprehensive metrics
-    original_accuracy = 100 * originals_guessed_correctly / total_images_processed if total_images_processed > 0 else 0
-    cf_accuracy = 100 * counterfactuals_guessed_correctly / total_images_processed if total_images_processed > 0 else 0
-    switch_to_healthy_rate = 100 * anomalous_switched_to_healthy / total_images_processed if total_images_processed > 0 else 0
-    switch_to_anomalous_rate = 100 * healthy_switched_to_anomalous / total_images_processed if total_images_processed > 0 else 0
+
+def calculate_counterfactual_metrics(results):
+    """
+    Calculate counterfactual evaluation metrics.
     
-    print(f"\n=== COUNTERFACTUAL EVALUATION RESULTS ===")
-    print(f"1. Total images processed: {total_images_processed}")
-    print(f"2. Original images guessed correctly (as anomalous): {originals_guessed_correctly}/{total_images_processed} ({original_accuracy:.2f}%)")
-    print(f"3. Counterfactuals guessed correctly (as healthy): {counterfactuals_guessed_correctly}/{total_images_processed} ({cf_accuracy:.2f}%)")
-    print(f"4. Images originally classified as anomalous that switched to healthy: {anomalous_switched_to_healthy}/{total_images_processed} ({switch_to_healthy_rate:.2f}%)")
-    print(f"5. Images originally classified as healthy that switched to anomalous: {healthy_switched_to_anomalous}/{total_images_processed} ({switch_to_anomalous_rate:.2f}%)")
+    Args:
+        results (list): List of result dictionaries from evaluate_counterfactuals
     
-    # Additional analysis: flip rate among correctly classified originals
+    Returns:
+        metrics (dict): Dictionary containing all calculated metrics
+    """
+    total_images = len(results)
+    originals_correct = sum(1 for r in results if r['original_correct'])
+    
+    # Analysis: correctly classified originals
     correctly_classified_originals = [r for r in results if r['original_correct'] and r['has_counterfactual']]
-    if correctly_classified_originals:
-        successful_switches = sum(1 for r in correctly_classified_originals if r['switched_to_healthy'])
-        success_switch_rate = 100 * successful_switches / len(correctly_classified_originals)
-        print(f"\n=== ADDITIONAL ANALYSIS ===")
-        print(f"Among correctly classified originals ({len(correctly_classified_originals)} images):")
-        print(f"Successfully switched to healthy: {successful_switches}/{len(correctly_classified_originals)} ({success_switch_rate:.2f}%)")
-    else:
-        print(f"\nNo correctly classified original anomalous images found!")
     
-    # Logit shift analysis
-    print(f"\n=== LOGIT SHIFT ANALYSIS ===")
-    valid_logit_shifts = [r['logit_shift'] for r in results if r['logit_shift'] is not None]
+    # CF Specificity: Among correctly classified originals, how many counterfactuals were correctly classified as healthy
+    cf_correct_from_correct_originals = sum(1 for r in correctly_classified_originals if r['cf_correct'])
+    cf_specificity_from_correct_originals = 100 * cf_correct_from_correct_originals / len(correctly_classified_originals) if correctly_classified_originals else 0
     
-    if valid_logit_shifts:
-        mean_logit_shift = np.mean(valid_logit_shifts)
-        std_logit_shift = np.std(valid_logit_shifts)
-        median_logit_shift = np.median(valid_logit_shifts)
-        
-        print(f"Overall logit shift statistics (n={len(valid_logit_shifts)}):")
-        print(f"  Mean: {mean_logit_shift:.4f} ± {std_logit_shift:.4f}")
-        print(f"  Median: {median_logit_shift:.4f}")
-        print(f"  Range: [{min(valid_logit_shifts):.4f}, {max(valid_logit_shifts):.4f}]")
-        
-        # Analyze logit shift for correctly classified originals
-        correct_original_shifts = [r['logit_shift'] for r in results if r['original_correct'] and r['logit_shift'] is not None]
-        if correct_original_shifts:
-            mean_correct_shift = np.mean(correct_original_shifts)
-            std_correct_shift = np.std(correct_original_shifts)
-            negative_shifts = sum(1 for shift in correct_original_shifts if shift < 0)
-            negative_shift_rate = 100 * negative_shifts / len(correct_original_shifts)
-            
-            print(f"\nLogit shift for correctly classified originals (n={len(correct_original_shifts)}):")
-            print(f"  Mean: {mean_correct_shift:.4f} ± {std_correct_shift:.4f}")
-            print(f"  Negative shifts (probability decreased): {negative_shifts}/{len(correct_original_shifts)} ({negative_shift_rate:.1f}%)")
-        
-        # Analyze logit shift for successful switches (anomalous->healthy)
-        successful_switch_shifts = [r['logit_shift'] for r in results if r['switched_to_healthy'] and r['logit_shift'] is not None]
-        if successful_switch_shifts:
-            mean_switch_shift = np.mean(successful_switch_shifts)
-            std_switch_shift = np.std(successful_switch_shifts)
-            
-            print(f"\nLogit shift for successful switches (anomalous→healthy, n={len(successful_switch_shifts)}):")
-            print(f"  Mean: {mean_switch_shift:.4f} ± {std_switch_shift:.4f}")
-            print(f"  This shows how much the probability of being anomalous decreased")
-        
-        # Analyze cases where original was correctly classified but didn't switch
-        correct_no_switch_shifts = [r['logit_shift'] for r in results if r['original_correct'] and not r['switched_to_healthy'] and r['logit_shift'] is not None]
-        if correct_no_switch_shifts:
-            mean_no_switch_shift = np.mean(correct_no_switch_shifts)
-            std_no_switch_shift = np.std(correct_no_switch_shifts)
-            
-            print(f"\nLogit shift for correctly classified that didn't switch (n={len(correct_no_switch_shifts)}):")
-            print(f"  Mean: {mean_no_switch_shift:.4f} ± {std_no_switch_shift:.4f}")
-            print(f"  This shows why some images remained classified as anomalous")
-    else:
-        print("No valid logit shifts found!")
+    # Opposite metric: Among wrongly classified originals (false negatives), how many counterfactuals were classified as anomalous
+    wrongly_classified_originals = [r for r in results if not r['original_correct'] and r['original_true_label'] == 1 and r['has_counterfactual']]
+    cf_anomalous_from_wrong_originals = sum(1 for r in wrongly_classified_originals if r['cf_pred'] == 1)
+    cf_anomalous_from_wrong_originals_rate = 100 * cf_anomalous_from_wrong_originals / len(wrongly_classified_originals) if wrongly_classified_originals else 0
     
-    # Additional breakdown by BI-RADS category
-    print(f"\n=== Breakdown by BI-RADS Category ===")
-    birads_stats = {}
-    for result in results:
-        birads = result['breast_birads']
-        if birads not in birads_stats:
-            birads_stats[birads] = {'total': 0, 'original_correct': 0, 'cf_correct': 0, 'switched_to_healthy': 0, 'switched_to_anomalous': 0}
-        
-        birads_stats[birads]['total'] += 1
-        if result['original_correct']:
-            birads_stats[birads]['original_correct'] += 1
-        if result['cf_correct']:
-            birads_stats[birads]['cf_correct'] += 1
-        if result['switched_to_healthy']:
-            birads_stats[birads]['switched_to_healthy'] += 1
-        if result['switched_to_anomalous']:
-            birads_stats[birads]['switched_to_anomalous'] += 1
+    # Correctly classified that didn't switch: originals correctly classified as anomalous, but CF remained anomalous
+    correct_no_switch = [r for r in correctly_classified_originals if not r['switched_to_healthy']]
+    correct_no_switch_count = len(correct_no_switch)
+    correct_no_switch_rate = 100 * correct_no_switch_count / len(correctly_classified_originals) if correctly_classified_originals else 0
     
-    for birads, stats in birads_stats.items():
-        orig_acc = 100 * stats['original_correct'] / stats['total'] if stats['total'] > 0 else 0
-        cf_acc = 100 * stats['cf_correct'] / stats['total'] if stats['total'] > 0 else 0
-        switch_to_healthy_rate = 100 * stats['switched_to_healthy'] / stats['total'] if stats['total'] > 0 else 0
-        switch_to_anomalous_rate = 100 * stats['switched_to_anomalous'] / stats['total'] if stats['total'] > 0 else 0
-        print(f"{birads}: {stats['total']} cases | Original accuracy: {orig_acc:.1f}% | CF accuracy: {cf_acc:.1f}% | Anom→Healthy: {switch_to_healthy_rate:.1f}% | Healthy→Anom: {switch_to_anomalous_rate:.1f}%")
-
-    # Save detailed results to CSV
-    df = pd.DataFrame(results)
-    output_file = "counterfactual_evaluation_results.csv"
-    df.to_csv(output_file, index=False)
-    print(f"\nSaved detailed results to {output_file}")
+    # For cases that didn't switch, analyze if probability decreased (moved toward healthy)
+    no_switch_with_decreased_prob = sum(1 for r in correct_no_switch if r['logit_shift'] is not None and r['logit_shift'] < 0)
+    no_switch_decreased_prob_rate = 100 * no_switch_with_decreased_prob / correct_no_switch_count if correct_no_switch_count > 0 else 0
     
-    # Save summary statistics
-    summary_stats = {
-        'total_images_processed': total_images_processed,
-        'originals_guessed_correctly': originals_guessed_correctly,
-        'original_accuracy_percent': original_accuracy,
-        'counterfactuals_guessed_correctly': counterfactuals_guessed_correctly,
-        'cf_accuracy_percent': cf_accuracy,
-        'anomalous_switched_to_healthy': anomalous_switched_to_healthy,
-        'switch_to_healthy_rate_percent': switch_to_healthy_rate,
-        'healthy_switched_to_anomalous': healthy_switched_to_anomalous,
-        'switch_to_anomalous_rate_percent': switch_to_anomalous_rate
+    metrics = {
+        'total_images': total_images,
+        'originals_correct': originals_correct,
+        'correctly_classified_originals_count': len(correctly_classified_originals),
+        'cf_correct_from_correct_originals': cf_correct_from_correct_originals,
+        'cf_specificity_from_correct_originals': cf_specificity_from_correct_originals,
+        'wrongly_classified_originals_count': len(wrongly_classified_originals),
+        'cf_anomalous_from_wrong_originals': cf_anomalous_from_wrong_originals,
+        'cf_anomalous_from_wrong_originals_rate': cf_anomalous_from_wrong_originals_rate,
+        'correct_no_switch_count': correct_no_switch_count,
+        'correct_no_switch_rate': correct_no_switch_rate,
+        'no_switch_with_decreased_prob': no_switch_with_decreased_prob,
+        'no_switch_decreased_prob_rate': no_switch_decreased_prob_rate
     }
     
-    # Add logit shift statistics
-    if valid_logit_shifts:
-        summary_stats.update({
-            'mean_logit_shift': mean_logit_shift,
-            'std_logit_shift': std_logit_shift,
-            'median_logit_shift': median_logit_shift,
-            'min_logit_shift': min(valid_logit_shifts),
-            'max_logit_shift': max(valid_logit_shifts),
-            'num_valid_logit_shifts': len(valid_logit_shifts)
-        })
-        
-        if correct_original_shifts:
-            summary_stats.update({
-                'mean_logit_shift_correct_originals': mean_correct_shift,
-                'std_logit_shift_correct_originals': std_correct_shift,
-                'negative_shifts_correct_originals': negative_shifts,
-                'negative_shift_rate_correct_originals_percent': negative_shift_rate,
-                'num_correct_original_shifts': len(correct_original_shifts)
-            })
-        
-        if successful_switch_shifts:
-            summary_stats.update({
-                'mean_logit_shift_successful_switches': mean_switch_shift,
-                'std_logit_shift_successful_switches': std_switch_shift,
-                'num_successful_switch_shifts': len(successful_switch_shifts)
-            })
-        
-        if correct_no_switch_shifts:
-            summary_stats.update({
-                'mean_logit_shift_no_switches': mean_no_switch_shift,
-                'std_logit_shift_no_switches': std_no_switch_shift,
-                'num_no_switch_shifts': len(correct_no_switch_shifts)
-            })
+    return metrics
+
+
+def log_evaluation_summary(log, metrics):
+    """Log evaluation summary"""
+    log.info("\n" + "="*50)
+    log.info("    COUNTERFACTUAL EVALUATION RESULTS")
+    log.info("="*50)
+    log.info(f"Total images processed: {metrics['total_images']}")
+    log.info(f"Original images correctly classified (as anomalous): {metrics['originals_correct']}/{metrics['total_images']}")
     
-    if correctly_classified_originals:
-        summary_stats['switch_rate_for_correct_originals_percent'] = success_switch_rate
-        summary_stats['correctly_classified_originals_count'] = len(correctly_classified_originals)
+    if metrics['correctly_classified_originals_count'] > 0:
+        log.info("\n" + "="*50)
+        log.info("  Among Correctly Classified Originals")
+        log.info("="*50)
+        log.info(f"Total: {metrics['correctly_classified_originals_count']} images")
+        log.info(f"\n1. CF Specificity (CFs correctly classified as healthy):")
+        log.info(f"   {metrics['cf_correct_from_correct_originals']}/{metrics['correctly_classified_originals_count']} ({metrics['cf_specificity_from_correct_originals']:.2f}%)")
+        log.info(f"\n2. Did NOT switch (CFs remained anomalous):")
+        log.info(f"   {metrics['correct_no_switch_count']}/{metrics['correctly_classified_originals_count']} ({metrics['correct_no_switch_rate']:.2f}%)")
+        if metrics['correct_no_switch_count'] > 0:
+            log.info(f"   → Of those, probability decreased (moved toward healthy):")
+            log.info(f"     {metrics['no_switch_with_decreased_prob']}/{metrics['correct_no_switch_count']} ({metrics['no_switch_decreased_prob_rate']:.2f}%)")
+    else:
+        log.info("\nNo correctly classified original anomalous images found!")
     
+    if metrics['wrongly_classified_originals_count'] > 0:
+        log.info("\n" + "="*50)
+        log.info("  Among Wrongly Classified Originals (False Negatives)")
+        log.info("="*50)
+        log.info(f"Total: {metrics['wrongly_classified_originals_count']} images")
+        log.info(f"\nCounterfactuals classified as anomalous:")
+        log.info(f"{metrics['cf_anomalous_from_wrong_originals']}/{metrics['wrongly_classified_originals_count']} ({metrics['cf_anomalous_from_wrong_originals_rate']:.2f}%)")
+    else:
+        log.info("\nNo wrongly classified original anomalous images found!")
+
+
+def save_evaluation_results(results, metrics, output_dir):
+    """
+    Save evaluation results to CSV files.
+    
+    Args:
+        results (list): List of result dictionaries
+        metrics (dict): Calculated metrics
+        output_dir (str): Directory to save results
+    """
+    # Save detailed results
+    results_df = pd.DataFrame(results)
+    detailed_path = os.path.join(output_dir, 'counterfactual_evaluation_results.csv')
+    results_df.to_csv(detailed_path, index=False)
+    print(f"Detailed results saved to: {detailed_path}")
+    
+    # Prepare summary statistics for saving
+    summary_stats = {
+        'total_images_processed': metrics['total_images'],
+        'originals_correctly_classified': metrics['originals_correct'],
+        'correctly_classified_originals_count': metrics['correctly_classified_originals_count'],
+        'cf_correct_from_correct_originals': metrics['cf_correct_from_correct_originals'],
+        'cf_specificity_from_correct_originals_percent': metrics['cf_specificity_from_correct_originals'],
+        'correct_no_switch_count': metrics['correct_no_switch_count'],
+        'correct_no_switch_rate_percent': metrics['correct_no_switch_rate'],
+        'no_switch_with_decreased_prob': metrics['no_switch_with_decreased_prob'],
+        'no_switch_decreased_prob_rate_percent': metrics['no_switch_decreased_prob_rate'],
+        'wrongly_classified_originals_count': metrics['wrongly_classified_originals_count'],
+        'cf_anomalous_from_wrong_originals': metrics['cf_anomalous_from_wrong_originals'],
+        'cf_anomalous_from_wrong_originals_rate_percent': metrics['cf_anomalous_from_wrong_originals_rate']
+    }
+    
+    # Save summary statistics
     summary_df = pd.DataFrame([summary_stats])
-    summary_file = "counterfactual_evaluation_summary.csv"
-    summary_df.to_csv(summary_file, index=False)
-    print(f"Saved summary statistics to {summary_file}")
+    summary_path = os.path.join(output_dir, 'counterfactual_evaluation_summary.csv')
+    summary_df.to_csv(summary_path, index=False)
+    print(f"Summary statistics saved to: {summary_path}")
+
+
+# -----------------------------
+# Arg parser
+# -----------------------------
+def create_argparser():
+    defaults = dict(
+        model_type="convnext",
+        checkpoint_path=os.path.join(MODELS_ROOT, "ConvNeXt_no_cf.pth"),
+        data_dir=DATASET_DIR,
+        metadata_dir=os.path.join(METADATA_ROOT, "resized_df_counterfactuals.csv"),
+        counterfactuals_dir=os.path.join(IMAGES_ROOT, "repaint_results"),
+        batch_size=16,
+    )
+    parser = argparse.ArgumentParser(description="Classify counterfactual images")
+    for k, v in defaults.items():
+        parser.add_argument(f"--{k}", type=type(v), default=v)
+    parser.add_argument('--debugging', action='store_true', default=False,
+                       help='Enable debugging mode with detailed logs')
+    return parser
+
+
+# -----------------------------
+# Main evaluation
+# -----------------------------
+def main():
+    # Parse command line arguments
+    args = create_argparser().parse_args()
+    
+    # Configure logging
+    output_dir = logger.Logger.configure(experiment_type=f"counterfactual_evaluation_{args.model_type}")
+    
+    if args.debugging:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    log = logger.Logger(log_dir=output_dir, log_file='evaluation.log', level=level)
+    
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log.info(f"Using device: {device}")
+    
+    # Create transforms
+    val_transform = create_test_transforms()
+
+    # Determine checkpoint path
+    if args.checkpoint_path:
+        checkpoint_path = args.checkpoint_path
+    else:
+        raise ValueError("Error: --checkpoint_path must be provided.")
+    
+    # Load model
+    model = load_model(checkpoint_path, args.model_type, device, num_classes=1, log=log)
+    
+    # Load dataset
+    dataset = VinDrMammo_dataset(
+        data_dir=DATASET_DIR,
+        metadata_path=args.metadata_dir,
+        split="test",
+        testing_category="anomalous_with_findings",  # Only anomalous cases with counterfactuals
+        testing_cf=False,  # Don't include counterfactuals in the dataset, we'll load them separately
+        transform=val_transform,
+        counterfactuals_dir=args.counterfactuals_dir
+    )
+
+    log.info(f"Found {len(dataset)} test anomalous images with findings for evaluation")
+    log.info(f"Dataset configuration: {dataset.get_config_summary()}")
+
+    if len(dataset) == 0:
+        log.warning("No test anomalous images with findings found. Exiting.")
+        return
+
+    # Run evaluation
+    log.info(f"\nEvaluating counterfactuals on {len(dataset)} images...")
+    results = evaluate_counterfactuals(model, dataset, device)
+    
+    # Calculate metrics
+    log.info("\nCalculating metrics...")
+    metrics = calculate_counterfactual_metrics(results)
+    
+    # Log results
+    log_evaluation_summary(log, metrics)
+    
+    # Save results
+    log.info("\nSaving evaluation results...")
+    save_evaluation_results(results, metrics, output_dir)
+    
+    log.info(f"\n{'='*50}")
+    log.info(f"Results saved to: {output_dir}")
+    log.info("Files created:")
+    log.info("  - counterfactual_evaluation_results.csv: Detailed per-image results")
+    log.info("  - counterfactual_evaluation_summary.csv: Summary statistics")
+    log.info("  - evaluation.log: Evaluation log")
+    log.info(f"{'='*50}")
 
 
 if __name__ == "__main__":
