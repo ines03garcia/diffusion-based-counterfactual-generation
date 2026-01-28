@@ -755,7 +755,6 @@ def train_fn(train_loader, model, criterion, optimizer, epoch, args, scheduler, 
 
 @torch.no_grad()
 def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=1):
-    
     model.eval() # Set model to evaluation mode
     model.is_training = False 
     
@@ -928,7 +927,7 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
         # Metrics on aggregated predictions
         preds = np.concatenate(preds['aggregated'])
         probs = np.concatenate(probs['aggregated'])
-    
+
         aucroc = auroc(targs, probs)
         f1, bacc = evaluate_metrics(targs, preds) 
         cf_matrix = confusion_matrix(targs, preds) if split == 'test' else None
