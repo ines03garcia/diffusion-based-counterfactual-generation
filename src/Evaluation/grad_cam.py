@@ -156,7 +156,9 @@ for model_type in ['ConvNeXt', 'ViT']:
                         nonhealthy_ious.append(iou)
 
                     visualization = overlay_cam_on_image(rgb_img, grayscale_cam)
-                    output_dir = f'../../data/images/gradcam2/{model_type}{checkpoint_type}'
+                    gradcam_images_dir = os.path.join(IMAGES_ROOT, "gradcam2")
+                    os.makedirs(gradcam_images_dir, exist_ok=True)
+                    output_dir = f'{gradcam_images_dir}/{model_type}{checkpoint_type}'
                     os.makedirs(output_dir, exist_ok=True)
                     cv2.imwrite(f'{output_dir}/{img_name}', np.uint8(255 * visualization))
                 else:
