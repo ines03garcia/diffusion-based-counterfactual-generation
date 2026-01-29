@@ -89,7 +89,12 @@ def evaluate_counterfactuals(model, dataset, device):
         try:
             # Get original image from dataset
             original_img, original_label_tensor, image_name = dataset[i]
-            original_label = int(original_label_tensor.item())
+            
+            # Handle label - check if it's already a scalar or a tensor
+            if isinstance(original_label_tensor, torch.Tensor):
+                original_label = int(original_label_tensor.item())
+            else:
+                original_label = int(original_label_tensor)
             
             # Load counterfactual using the helper method
             _, cf_img, _ = dataset.get_image_and_counterfactual(image_name)
@@ -142,7 +147,9 @@ def evaluate_counterfactuals(model, dataset, device):
             })
             
         except Exception as e:
+            import traceback
             print(f"Error processing image at index {i}: {e}")
+            print(f"Traceback: {traceback.format_exc()}")
             continue
     
     return results
@@ -313,7 +320,7 @@ def main():
     log.info(f"Using device: {device}")
     
     # Create transforms
-    val_transform = create_transforms("none")
+    _, val_transform = create_transforms("none")
 
     # Determine checkpoint path
     if args.checkpoint_path:
