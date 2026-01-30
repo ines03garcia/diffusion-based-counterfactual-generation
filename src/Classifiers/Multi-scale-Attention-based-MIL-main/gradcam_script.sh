@@ -1,0 +1,31 @@
+python main.py \
+  --evaluation \
+  --roi_eval \
+  --visualize_num_images 50 \
+  --eval_set test \
+  --resume "/home/csantiago/inescgarcia/diffusion-based-counterfactual-generation/src/Classifiers/Multi-scale-Attention-based-MIL-main/Mammo-CLIP-output/out_splits_new/MIL_experiments/ViNDr_data_frac_1.0/anomaly/ft-warmup_0-aug/2026-01-17" \
+  --img-size 512 512 \
+  --img_dir "/home/csantiago/inescgarcia/diffusion-based-counterfactual-generation/data/images/data_dir/img_dir" \
+  --feature_extraction online \
+  --clip_chk_pt_path /home/csantiago/inescgarcia/diffusion-based-counterfactual-generation/models/b2-model-best-epoch-10.tar \
+  --csv_file "/home/csantiago/inescgarcia/diffusion-based-counterfactual-generation/data/metadata/resized_df_anomaly.csv" \
+  --mil_type pyramidal_mil \
+  --multi_scale_model fpn \
+  --type_scale_aggregator gated-attention \
+  --deep_supervision \
+  --scales 64 128 256 \
+  --quantile_threshold 0.95 \
+  --max_bboxes 3 \
+  --min_area 230 \
+  --iou_threshold 0.25 \
+  --fpn_dim 256 \
+  --fcl_encoder_dim 256 \
+  --fcl_attention_dim 128 \
+  --label anomaly \
+  --mean 0.24837562 \
+  --std 0.28074848 \
+  --patching \
+  --patch_size 128 \
+  --overlap 0.5
+  
+  

@@ -32,7 +32,7 @@ def setup_model_args(args):
 def load_and_prepare_data(args):
     """Load and prepare test data based on evaluation set."""
     args.data_dir = Path(args.data_dir)
-    args.df = pd.read_csv(args.data_dir / args.csv_file)
+    args.df = pd.read_csv(args.csv_file)
     args.df = args.df.fillna(0)
     
     print(f"df shape: {args.df.shape}")
