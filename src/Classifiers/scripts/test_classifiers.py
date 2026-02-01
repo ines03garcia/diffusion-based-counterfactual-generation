@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report, roc_auc_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report, roc_auc_score, balanced_accuracy_score
 from tqdm import tqdm
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for headless environments
@@ -19,15 +19,7 @@ from src.Classifiers.aux_scripts import logger
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
 from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
-
-
-def create_test_transforms():
-    """Create test transforms (no augmentation)"""
-    return transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+from src.Classifiers.aux_scripts.utils import create_transforms
 
 
 def test_model(model, dataloader, device):
@@ -44,7 +36,7 @@ def test_model(model, dataloader, device):
             images, labels = images.to(device), labels.to(device).float()
             
             outputs = model(images)
-            probs = torch.sigmoid(outputs)
+            probs = torch.sigmoid(outputs).squeeze()  # Ensure 1D: (batch_size,)
             preds = (probs > 0.5).float()
             
             predictions.extend(preds.cpu().numpy())
@@ -59,6 +51,7 @@ def calculate_metrics(predictions, probabilities, targets):
     """Calculate comprehensive metrics"""
     # Basic metrics
     accuracy = accuracy_score(targets, predictions)
+    balanced_acc = balanced_accuracy_score(targets, predictions)
     precision = precision_score(targets, predictions, average='binary', zero_division=0)
     recall = recall_score(targets, predictions, average='binary', zero_division=0)
     f1 = f1_score(targets, predictions, average='binary', zero_division=0)
@@ -78,6 +71,7 @@ def calculate_metrics(predictions, probabilities, targets):
     
     metrics = {
         'accuracy': accuracy,
+        'balanced_accuracy': balanced_acc,
         'precision': precision,
         'recall': recall,
         'f1_score': f1,
@@ -208,12 +202,13 @@ def log_metrics_summary(log, metrics):
     log.debug("\n" + "="*50)
     log.debug("           TEST SET RESULTS")
     log.debug("="*50)
-    log.debug(f"Accuracy:     {metrics['accuracy']:.4f}")
-    log.debug(f"Precision:    {metrics['precision']:.4f}")
-    log.debug(f"Recall:       {metrics['recall']:.4f}")
-    log.debug(f"F1-Score:     {metrics['f1_score']:.4f}")
-    log.debug(f"Specificity:  {metrics['specificity']:.4f}")
-    log.debug(f"AUC:          {metrics['auc']:.4f}")
+    log.debug(f"Accuracy:          {metrics['accuracy']:.4f}")
+    log.debug(f"Balanced Accuracy: {metrics['balanced_accuracy']:.4f}")
+    log.debug(f"Precision:         {metrics['precision']:.4f}")
+    log.debug(f"Recall:            {metrics['recall']:.4f}")
+    log.debug(f"F1-Score:          {metrics['f1_score']:.4f}")
+    log.debug(f"Specificity:       {metrics['specificity']:.4f}")
+    log.debug(f"AUC:               {metrics['auc']:.4f}")
     log.debug("\nConfusion Matrix:")
     log.debug(f"                 Predicted")
     log.debug(f"              Healthy  Anomalous")
@@ -327,7 +322,7 @@ def main():
     model = load_model(args.model_type, args.checkpoint_path, device, num_classes=1, log=log)
     
     # Create test dataset
-    test_transform = create_test_transforms()
+    _, test_transform = create_transforms("none")
     
     test_dataset = VinDrMammo_dataset(
         data_dir=args.data_dir,
