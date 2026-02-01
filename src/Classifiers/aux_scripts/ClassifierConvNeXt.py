@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConvNeXtClassifier(nn.Module):
-    def __init__(self, num_classes=1, pretrained=True):
+    def __init__(self, num_classes=1, pretrained=True, grad_cam=False):
         super(ConvNeXtClassifier, self).__init__()
         
         if pretrained:
@@ -33,6 +33,7 @@ class ConvNeXtClassifier(nn.Module):
         
         # Replace the classifier head
         self.convnext.classifier[2] = nn.Linear(self.convnext.classifier[2].in_features, num_classes)
+        self.grad_cam = grad_cam
     
     def _load_local_weights(self):
         """Load pretrained weights from local file"""
@@ -47,6 +48,8 @@ class ConvNeXtClassifier(nn.Module):
             raise ValueError(f"Local weights not found at {weights_path}")
     
     def forward(self, x):
-        return self.convnext(x).squeeze(-1) # Remove squeeze for grad cam calculation
+        if self.grad_cam:
+            return self.convnext(x)
+        return self.convnext(x).squeeze(-1)
 
 

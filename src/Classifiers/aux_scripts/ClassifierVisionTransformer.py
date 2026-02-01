@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class VisionTransformerClassifier(nn.Module):
-    def __init__(self, num_classes=1, pretrained=True):
+    def __init__(self, num_classes=1, pretrained=True, grad_cam=False):
         super(VisionTransformerClassifier, self).__init__()
         
         if pretrained:
@@ -34,6 +34,7 @@ class VisionTransformerClassifier(nn.Module):
         
         # Replace classifier head
         self.vit.heads.head = nn.Linear(self.vit.heads.head.in_features, num_classes)
+        self.grad_cam=grad_cam
     
     def _load_local_weights(self):
         """Load pretrained weights from local file"""
@@ -49,4 +50,6 @@ class VisionTransformerClassifier(nn.Module):
                            f"Please download them manually or ensure internet connectivity.")
     
     def forward(self, x):
-        return self.vit(x).squeeze(-1) # Remove squeeze for grad cam calculation
+        if self.grad_cam:
+            return self.vit(x)
+        return self.vit(x).squeeze(-1)

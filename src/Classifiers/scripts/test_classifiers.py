@@ -232,6 +232,16 @@ def load_model(model_name, checkpoint_path, device, num_classes=1, log=None):
     log.info(f"Loading checkpoint from: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
+    # Log checkpoint information for debugging
+    if 'epoch' in checkpoint:
+        log.info(f"Checkpoint epoch: {checkpoint['epoch']}")
+    if 'val_acc' in checkpoint:
+        log.info(f"Checkpoint val_acc: {checkpoint['val_acc']:.4f}")
+    if 'val_loss' in checkpoint:
+        log.info(f"Checkpoint val_loss: {checkpoint['val_loss']:.4f}")
+    if 'args' in checkpoint:
+        log.info(f"Training args: {checkpoint['args']}")
+    
     # Create model based on model name
     model_name = model_name.lower()
     if model_name == 'vit':
@@ -350,6 +360,14 @@ def main():
     
     # Calculate metrics
     metrics = calculate_metrics(predictions, probabilities, targets)
+    
+    # Log probability statistics for debugging
+    log.info(f"\nProbability Statistics:")
+    log.info(f"Min probability: {probabilities.min():.4f}")
+    log.info(f"Max probability: {probabilities.max():.4f}")
+    log.info(f"Mean probability: {probabilities.mean():.4f}")
+    log.info(f"Median probability: {np.median(probabilities):.4f}")
+    log.info(f"Probabilities > 0.5: {(probabilities > 0.5).sum()} / {len(probabilities)}")
     
     # Log results
     if args.debugging:

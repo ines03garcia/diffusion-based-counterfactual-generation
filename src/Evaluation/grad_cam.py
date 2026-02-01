@@ -10,6 +10,7 @@ import os
 import cv2
 import numpy as np
 import math
+from PIL import Image
 
 from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
@@ -24,9 +25,9 @@ class NegativeLogitTarget:
 
 def model_load(checkpoint_path, model_type, device):
     if model_type.lower() == "vit":
-        model = VisionTransformerClassifier(num_classes=1, pretrained=False)
+        model = VisionTransformerClassifier(num_classes=1, pretrained=False, grad_cam=True)
     elif model_type.lower() == "convnext":
-        model = ConvNeXtClassifier(num_classes=1, pretrained=False)
+        model = ConvNeXtClassifier(num_classes=1, pretrained=False, grad_cam=True)
     else:
         raise ValueError(f"Unsupported model type: {model_type}. Use 'vit' or 'convnext'")
     
@@ -136,12 +137,16 @@ for model_type in ['ConvNeXt', 'ViT']:
                 mask_path = os.path.join(MASKS_DIR, img_name)
 
                 if os.path.exists(mask_path):
-                    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+                    # Load mask using PIL for consistency
+                    mask = np.array(Image.open(mask_path).convert('L'))
                     mask = (mask > 0).astype(np.float32)
 
                     if mask.shape != grayscale_cam.shape:
                         print(f"Resizing mask from {mask.shape} to {grayscale_cam.shape}")
-                        mask = cv2.resize(mask, (grayscale_cam.shape[1], grayscale_cam.shape[0]), interpolation=cv2.INTER_NEAREST)
+                        # Resize using PIL
+                        mask_pil = Image.fromarray((mask * 255).astype(np.uint8))
+                        mask_pil = mask_pil.resize((grayscale_cam.shape[1], grayscale_cam.shape[0]), Image.NEAREST)
+                        mask = np.array(mask_pil).astype(np.float32) / 255.0
 
                     cam_in_mask = np.sum(grayscale_cam * mask)
                     mask_area = np.sum(mask)
@@ -160,7 +165,9 @@ for model_type in ['ConvNeXt', 'ViT']:
                     os.makedirs(gradcam_images_dir, exist_ok=True)
                     output_dir = f'{gradcam_images_dir}/{model_type}{checkpoint_type}'
                     os.makedirs(output_dir, exist_ok=True)
-                    cv2.imwrite(f'{output_dir}/{img_name}', np.uint8(255 * visualization))
+                    # Save using PIL for consistency
+                    vis_img = (np.clip(visualization, 0, 1) * 255).astype(np.uint8)
+                    Image.fromarray(vis_img).save(f'{output_dir}/{img_name}')
                 else:
                     raise FileNotFoundError(f"Mask file not found: {mask_path}")
                 
