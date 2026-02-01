@@ -348,7 +348,6 @@ def MIL_dataloader(split_df, split, args):
     Returns:
         DataLoader: Configured DataLoader for the specified split and settings.
     """
-
     # Define Transformations
     if args.feature_extraction == 'online': 
         # Online feature extraction 
@@ -367,16 +366,13 @@ def MIL_dataloader(split_df, split, args):
                                                  ])
         else: 
             # No augmentation for validation/test; and also for training if args.data_aug = False
-            tfm = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),
-                                                  torchvision.transforms.Normalize(mean=args.mean, std=args.std),
-                                                  lambda_funct(pad_image, args.patch_size, args.mean, args.std),              
-                                                  Patching(
-                                                      patch_size = args.patch_size, 
-                                                      overlap = args.overlap, 
-                                                      multi_scale_model = args.multi_scale_model, 
-                                                      scales = args.scales
-                                                  )
-                                                 ])
+            tfm = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),         
+                                torchvision.transforms.Normalize(mean=args.mean, std=args.std),
+                                lambda_funct(pad_image, args.patch_size, args.mean, args.std),                                   Patching(patch_size = args.patch_size, 
+                                         overlap = args.overlap, 
+                                         multi_scale_model = args.multi_scale_model, 
+                                         scales = args.scales)
+                                ])
         
     else:     
         # Use pre-extracted features (no image transforms needed) 
@@ -404,7 +400,7 @@ def MIL_dataloader(split_df, split, args):
         )
         
     else: 
-                
+        print(str(len(split_dataset)), "images to be loaded")
         loader = DataLoader(
             split_dataset, 
             batch_size=args.batch_size if not args.roi_eval else 1, 

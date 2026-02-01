@@ -27,7 +27,6 @@ def filter_bounding_boxes(finding_categories, boxes, label_name):
     for sublist in finding_categories_list:
 
         cleaned_sublist = ast.literal_eval(sublist)
-        
         # Append the cleaned sublist as a whole if it contains more than one element
         cleaned_categories.append(cleaned_sublist if isinstance(cleaned_sublist, list) else [cleaned_sublist])
 
@@ -41,9 +40,9 @@ def filter_bounding_boxes(finding_categories, boxes, label_name):
     for i in range(len(xmin_list)):
         # Extract the finding categories for this box
         box_categories = cleaned_categories[i]
-        
+
         # Check if label_name is present
-        if any(category == label_name for category in (box_categories if isinstance(box_categories, list) else [box_categories])):
+        if label_name == "anomaly" or any(category == label_name for category in (box_categories if isinstance(box_categories, list) else [box_categories])):
                 
             xmin = xmin_list[i]
             xmax = xmax_list[i]
@@ -57,7 +56,7 @@ def filter_bounding_boxes(finding_categories, boxes, label_name):
             # Swap ymin and ymax if ymin > ymax
             if float(ymin) > float(ymax):
                 ymin, ymax = ymax, ymin
-                
+
             filtered_boxes.append([xmin, ymin, xmax, ymax])
 
     return filtered_boxes
@@ -69,11 +68,9 @@ class BagDataset(Dataset):
     def __init__(self, args, df, transform=None):
         self.args = args
         self.df = df
-        self.dir_path = args.data_dir / args.img_dir
+        self.dir_path = args.img_dir
         self.dataset = args.dataset
         self.transform = transform
-        
-        print(transform)
 
     def __len__(self):
         return len(self.df)
@@ -127,14 +124,14 @@ class Generic_MIL_Dataset(Dataset):
 
         if args.multi_scale_model is None: 
             # single-scale mil models 
-            self.dir_path = args.data_dir / args.feat_dir / f'patch_size-{args.scales[0]}' if args.feature_extraction == 'offline' else args.data_dir / args.img_dir
+            self.dir_path = args.data_dir / args.feat_dir / f'patch_size-{args.scales[0]}' if args.feature_extraction == 'offline' else args.img_dir
             
         elif args.multi_scale_model == 'msp': 
             # multi-scale patch-based mil models 
             self.dir_path = args.data_dir / args.feat_dir 
             
         elif args.multi_scale_model in ['fpn', 'backbone_pyramid']: 
-            self.dir_path = args.data_dir / args.feat_dir / 'multi_scale' if args.feature_extraction == 'offline' else args.data_dir / args.img_dir
+            self.dir_path = args.data_dir / args.feat_dir / 'multi_scale' if args.feature_extraction == 'offline' else args.img_dir
 
         self.split = split
         self.dataset = args.dataset
@@ -185,7 +182,7 @@ class Generic_MIL_Dataset(Dataset):
 
         if self.transform is not None:  # Online instance feature extraction mode
 
-            bag_dir = self.dir_path / str(self.df.iloc[idx]['patient_id']) / str(self.df.iloc[idx]['image_id']) if self.args.dataset != 'ddsm' else data['image_file_path']
+            bag_dir = os.path.join(self.dir_path, str(self.df.iloc[idx]['patient_id']), str(self.df.iloc[idx]['image_id'])) if self.args.dataset != 'ddsm' else data['image_file_path']
     
             img = Image.open(bag_dir).convert('RGB')
                 
@@ -269,20 +266,20 @@ class Generic_MIL_Dataset_Detection(Dataset):
 
         if self.feature_extraction: 
             # For online feature extraction, only image directory is needed
-            self.img_dir = args.data_dir / args.img_dir
+            self.img_dir =  args.img_dir
         else: 
             # For offline feature extraction, set feature directory based on MIL model type
             if args.multi_scale_model == 'msp': 
                 # multi-scale patch-based MIL model 
-                self.feat_dir = args.data_dir / args.feat_dir
+                self.feat_dir =  args.feat_dir
             elif args.multi_scale_model in ['fpn', 'backbone_pyramid']: 
                 # FPN-based MIL model 
-                self.feat_dir = args.data_dir / args.feat_dir / 'multi_scale'
+                self.feat_dir =  args.feat_dir / 'multi_scale'
             else:
                 # single-scale MIL model 
-                self.feat_dir = args.data_dir / args.feat_dir / f'patch_size-{args.scales[0]}'
+                self.feat_dir =  args.feat_dir / f'patch_size-{args.scales[0]}'
                     
-            self.img_dir = args.data_dir / args.img_dir
+            self.img_dir =  args.img_dir
             
         self.dataset = args.dataset
         self.transform = transform
@@ -322,6 +319,8 @@ class Generic_MIL_Dataset_Detection(Dataset):
         for idx, row in self.df.iterrows():
             
             finding_categories = row["finding_categories"]
+            if "No Finding" in finding_categories:
+                continue
 
             # Extract bounding boxes, convert coordinates to floats
             boxes = [
@@ -332,11 +331,11 @@ class Generic_MIL_Dataset_Detection(Dataset):
             ]
 
             # Filter bounding boxes based on label type
-            boxes = filter_bounding_boxes(finding_categories, boxes, self.label_type) 
+            boxes = filter_bounding_boxes(finding_categories, boxes, self.label_type)
 
             # If any valid bounding boxes exist, append data to image_dict
             if any(boxes): 
-                img_path = self.img_dir / str(self.df.iloc[idx]['patient_id']) / str(self.df.iloc[idx]['image_id'])
+                img_path = os.path.join(self.img_dir, str(self.df.iloc[idx]['patient_id']), str(self.df.iloc[idx]['image_id']))
                 image_dict["img_path"].append(img_path) 
                 image_dict["boxes"].append(boxes)
                 image_dict["labels"].append(1) # Label is 1 indicating presence of the finding
@@ -439,12 +438,12 @@ class Generic_MIL_Dataset_Detection(Dataset):
             else: 
 
                 patch_size = self.args.scales[0] if self.multi_scale_model is None else self.args.patch_size
-                    
+
                 bag_info = {
                         'patch_size': patch_size, 
                         'step_size': patch_size - int(patch_size * self.args.overlap[0]), 
-                        'img_height': self.args.img_size[0] + padding_top + padding_bottom,
-                        'img_width': self.args.img_size[1] + padding_left + padding_right,
+                        'img_height': int(self.args.img_size[0]) + padding_top + padding_bottom,
+                        'img_width': int(self.args.img_size[1]) + padding_left + padding_right,
                         'img_dir': img_path
                     }
 
