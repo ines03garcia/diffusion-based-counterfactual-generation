@@ -383,6 +383,38 @@ def evaluate_metrics(annotations, detections, scores, false_positives, true_posi
     return scores, iou_scores, false_positives, true_positives
 
 
+def compute_pixelwise_iou(heatmap, mask, threshold=0.5):
+    """
+    Compute pixel-level IoU between binarized heatmap and ground truth mask.
+    This matches the approach used in grad_cam.py.
+    
+    Args:
+        heatmap (np.ndarray or torch.Tensor): 2D heatmap, normalized to [0, 1].
+        mask (np.ndarray): 2D binary mask where 1 indicates lesion region.
+        threshold (float): Threshold to binarize heatmap (default: 0.5, matching grad_cam.py).
+    
+    Returns:
+        float: IoU score between binarized heatmap and mask.
+    """
+    # Convert to numpy if torch tensor
+    if isinstance(heatmap, torch.Tensor):
+        heatmap = heatmap.cpu().numpy()
+    
+    # Binarize heatmap at threshold
+    binary_heatmap = (heatmap > threshold).astype(np.float32)
+    
+    # Compute intersection and union
+    intersection = np.sum(binary_heatmap * mask)
+    union = np.sum(((binary_heatmap + mask) > 0).astype(np.float32))
+    
+    # Avoid division by zero
+    if union == 0:
+        return 0.0
+    
+    iou = intersection / union
+    return iou
+
+
 def get_cumlative_attention(cam, bbox):
     """
     Compute the cumulative attention within a specified bounding box on a given heatmap.
@@ -571,7 +603,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
         heatmap = torch.where(attention_map_counts == 0, torch.tensor(0.0), torch.div(attention_map, attention_map_counts))
 
         # Smooth the heatmap with a Gaussian filter for better visualization
-        heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=10*2))
+        heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=20))
 
         # Normalize heatmap only within the segmented mask area; set outside mask to 0
         if (seg_mask != 0).sum() > 0:  # Check if mask has non-zero pixels
@@ -665,7 +697,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                 heatmap = torch.where(attention_map_counts == 0, torch.tensor(0.0), torch.div(attention_map, attention_map_counts))
 
                 # Smooth heatmap with Gaussian filter
-                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=10*2))
+                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=20))
 
                 # Normalize heatmap only within the segmented mask area; set outside mask to 0
                 if (seg_mask != 0).sum() > 0:  # Check if mask has non-zero pixels
@@ -785,7 +817,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                 heatmap = torch.where(attention_map_counts == 0, torch.tensor(0.0), torch.div(attention_map, attention_map_counts))
 
                 # Smooth heatmap with Gaussian filter
-                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=10*2))
+                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=20))
 
                 # Normalize heatmap only within the segmented mask area; set outside mask to 0
 
@@ -1033,7 +1065,6 @@ def run_roi_eval(directory, args, device):
 
     ############################ Data Setup ############################
     args.data_dir = Path(args.data_dir)
-    
     args.df = pd.read_csv(args.csv_file)
     args.df = args.df.fillna(0)
     
@@ -1116,12 +1147,39 @@ def run_roi_eval(directory, args, device):
         # Load and pad image
         img = Image.open(bag_info['img_dir']).convert('RGB')
         image_rgb, padding = pad_image(transforms.ToTensor()(img), args.patch_size)
+        
+        # Segment and pad with SAME padding as image
         seg_mask = Segment(transforms.ToTensor()(img))
-        seg_mask, _ = pad_image(seg_mask, args.patch_size)        
+        padding_left, padding_right, padding_top, padding_bottom = padding
+        seg_mask = F.pad(seg_mask, padding, mode='constant', value=0)
 
         # Compute heatmaps and predicted boxes        
         bag_prob, heatmaps = Compute_Heatmaps_patches(model, inputs, bag_coords, bag_info, total_num_imgs < args.visualize_num_images, seg_mask, device, args)
-        num_annotations += boxes.shape[0]
+        
+        # Load ground truth mask for pixel-level IoU computation (matching grad_cam.py)
+        # Assuming masks are stored with same filename structure as images
+        img_filename = os.path.basename(bag_info['img_dir'])
+        mask_dir = os.path.join(args.data_dir.parent, 'masks_512')  # Adjust path as needed
+        mask_path = os.path.join(mask_dir, img_filename)
+        
+        if os.path.exists(mask_path):
+            # Load mask: masks have 0 in ROI region (inverted), need to invert to match heatmap
+            gt_mask = np.array(Image.open(mask_path).convert('L'))
+            gt_mask = (gt_mask == 0).astype(np.float32)  # Convert 0 (ROI) to 1, rest to 0
+            
+            # CRITICAL: Pad GT mask with SAME padding as image to maintain spatial alignment
+            gt_mask_tensor = torch.from_numpy(gt_mask)
+            gt_mask_padded = F.pad(gt_mask_tensor, padding, mode='constant', value=0).numpy()
+            
+            # DO NOT mask GT with tissue segmentation - lesion annotations should be trusted
+            # The heatmap is already normalized within tissue region only
+            # Masking GT could remove valid lesion pixels if tissue segmentation is imperfect
+            
+            num_annotations += 1  # Count images with masks
+        else:
+            print(f"WARNING: Mask not found for {img_filename} at {mask_path}")
+            gt_mask_padded = None
+            num_annotations += boxes.shape[0]  # Fallback to box count
 
         # Check structure
         iou_df_new = {
@@ -1129,18 +1187,40 @@ def run_roi_eval(directory, args, device):
             "boxes": boxes,
         }
 
-        ############################ IoU Evaluation ############################
-        if args.mil_type == 'pyramidal_mil': 
-            
-            for scale, heatmap in heatmaps.items(): 
-                scores[scale], iou_scores, false_positives[scale], true_positives[scale] = evaluate_metrics(boxes, heatmap['pred_bboxes'], scores[scale], false_positives[scale], true_positives[scale], args.iou_threshold, args.iou_method)
-
-                iou_df_new[f"iou_score_{scale}"] = np.max(iou_scores)
-        
-        else: # single-scale patch-based mil models
-            scores, iou_scores, false_positives, true_positives = evaluate_metrics(boxes, heatmaps['pred_bboxes'], scores, false_positives, true_positives, args.iou_threshold, args.iou_method)
+        ############################ IoU Evaluation (Pixel-level) ############################
+        if gt_mask_padded is not None:
+            if args.mil_type == 'pyramidal_mil': 
+                
+                for scale, heatmap_data in heatmaps.items():                    
+                    # Compute pixel-level IoU matching grad_cam.py approach (threshold=0.5)
+                    iou_score = compute_pixelwise_iou(heatmap_data['heatmap'], gt_mask_padded, threshold=0.5)
+                    iou_df_new[f"iou_score_{scale}"] = iou_score
                     
-            iou_df_new[f"iou_score"] = np.max(iou_scores)
+                    # For box-based mAP, still use bounding boxes if needed
+                    scores[scale], iou_scores_box, false_positives[scale], true_positives[scale] = evaluate_metrics(
+                        boxes, heatmap_data['pred_bboxes'], scores[scale], 
+                        false_positives[scale], true_positives[scale], 
+                        args.iou_threshold, args.iou_method
+                    )
+            
+            else: # single-scale patch-based mil models
+                # Compute pixel-level IoU matching grad_cam.py approach (threshold=0.5)
+                iou_score = compute_pixelwise_iou(heatmaps['heatmap'], gt_mask_padded, threshold=0.5)
+                iou_df_new[f"iou_score"] = iou_score
+                
+                # For box-based mAP, still use bounding boxes if needed
+                scores, iou_scores_box, false_positives, true_positives = evaluate_metrics(
+                    boxes, heatmaps['pred_bboxes'], scores, 
+                    false_positives, true_positives, 
+                    args.iou_threshold, args.iou_method
+                )
+        else:
+            # Fallback if no mask available
+            if args.mil_type == 'pyramidal_mil':
+                for scale in heatmaps.keys():
+                    iou_df_new[f"iou_score_{scale}"] = 0.0
+            else:
+                iou_df_new[f"iou_score"] = 0.0
 
         
         # Add the entry to the DataFrame
@@ -1200,7 +1280,7 @@ def run_roi_eval(directory, args, device):
                 axs[0].axis('off')
                 
                 ShowVis(heatmaps['heatmap'], image_rgb.permute(1,2,0), heatmaps['pred_bboxes'], axs[1], args)  
-                axs[1].set_title(f"Heatmap (IoU: {np.max(iou_scores)*100:.4f})", fontsize=16)
+                axs[1].set_title(f"Heatmap (IoU: {iou_df_new['iou_score']*100:.4f})", fontsize=16)
                 axs[1].axis('off')
     
                 # Add colorbar
