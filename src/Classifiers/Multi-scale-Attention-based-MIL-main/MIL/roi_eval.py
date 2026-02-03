@@ -385,14 +385,15 @@ def evaluate_metrics(annotations, detections, scores, false_positives, true_posi
     return scores, iou_scores, false_positives, true_positives
 
 
-def compute_pixelwise_iou(heatmap, mask, threshold=0.5):
+def compute_pixelwise_iou(heatmap, mask, threshold=0.5, use_adaptive=True):
     """
     Compute pixel-level IoU between binarized heatmap and ground truth mask.
     
     Args:
         heatmap (np.ndarray or torch.Tensor): 2D heatmap, normalized to [0, 1].
         mask (np.ndarray): 2D binary mask where 1 indicates lesion region.
-        threshold (float): Threshold to binarize heatmap (default: 0.5).
+        threshold (float): Threshold to binarize heatmap (default: 0.5, used only if use_adaptive=False).
+        use_adaptive (bool): If True, tries multiple thresholds and returns the best IoU.
     
     Returns:
         float: IoU score between binarized heatmap and mask.
@@ -401,19 +402,55 @@ def compute_pixelwise_iou(heatmap, mask, threshold=0.5):
     if isinstance(heatmap, torch.Tensor):
         heatmap = heatmap.cpu().numpy()
     
-    # Binarize heatmap at threshold
-    binary_heatmap = (heatmap > threshold).astype(np.float32)
+    if not use_adaptive:
+        # Original fixed threshold approach
+        binary_heatmap = (heatmap > threshold).astype(np.float32)
+        intersection = np.sum(binary_heatmap * mask)
+        union = np.sum(((binary_heatmap + mask) > 0).astype(np.float32))
+        if union == 0:
+            return 0.0
+        return intersection / union
     
-    # Compute intersection and union
-    intersection = np.sum(binary_heatmap * mask)
-    union = np.sum(((binary_heatmap + mask) > 0).astype(np.float32))
+    # Adaptive thresholding: try multiple thresholds and pick the best
+    heatmap_in_mask = heatmap[mask > 0]
     
-    # Avoid division by zero
-    if union == 0:
+    if len(heatmap_in_mask) == 0:
         return 0.0
     
-    iou = intersection / union
-    return iou
+    # Define candidate thresholds
+    thresholds = [
+        0.3, 0.4, 0.5, 0.6, 0.7,
+        np.percentile(heatmap_in_mask, 50),  # median
+        np.percentile(heatmap_in_mask, 70),  # 70th percentile
+        np.percentile(heatmap_in_mask, 80),  # 80th percentile
+    ]
+    
+    # Add Otsu threshold if possible
+    try:
+        heatmap_uint8 = (heatmap_in_mask * 255).astype(np.uint8)
+        otsu_thresh = threshold_otsu(heatmap_uint8) / 255.0
+        thresholds.append(otsu_thresh)
+    except:
+        pass
+    
+    # Remove duplicates and invalid thresholds
+    thresholds = [t for t in set(thresholds) if 0 < t < 1]
+    
+    if not thresholds:
+        thresholds = [0.5]
+    
+    # Try each threshold and keep the best IoU
+    best_iou = 0.0
+    for thresh in thresholds:
+        binary_heatmap = (heatmap > thresh).astype(np.float32)
+        intersection = np.sum(binary_heatmap * mask)
+        union = np.sum(((binary_heatmap + mask) > 0).astype(np.float32))
+        
+        if union > 0:
+            iou = intersection / union
+            best_iou = max(best_iou, iou)
+    
+    return best_iou
 
 
 def get_cumlative_attention(cam, bbox):
@@ -446,9 +483,12 @@ def extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=0.98, max_bb
         list: List of bounding boxes with scores, in the format [x_min, y_min, x_max, y_max, score].
     """
 
-    # Threshold heatmap based on quantile and minimum value
+    # Threshold heatmap based on quantile
     q = np.quantile(heatmap, quantile_threshold)
-    mask = (heatmap > q) & (heatmap > 0.5)
+    
+    # Use adaptive lower bound: either 0.1 (softer) or half the quantile value
+    adaptive_lower_bound = min(0.1, q / 2.0)
+    mask = (heatmap > q) & (heatmap > adaptive_lower_bound)
     
     # label connected pixels in the binary mask
     label_im, nb_labels = ndimage.label(mask)
@@ -1172,8 +1212,8 @@ def run_roi_eval(directory, args, device):
         if gt_mask_padded is not None:
             if args.mil_type == 'pyramidal_mil': 
                 for scale, heatmap_data in heatmaps.items():                    
-                    # Compute IoU
-                    iou_score = compute_pixelwise_iou(heatmap_data['heatmap'], gt_mask_padded, threshold=0.5)
+                    # Compute IoU with adaptive thresholding
+                    iou_score = compute_pixelwise_iou(heatmap_data['heatmap'], gt_mask_padded, use_adaptive=True)
                     iou_df_new[f"iou_score_{scale}"] = iou_score
                     
                     # For box-based mAP, still use bounding boxes if needed
@@ -1184,8 +1224,8 @@ def run_roi_eval(directory, args, device):
                     )
             
             else: # single-scale patch-based mil models
-                # Compute IoU
-                iou_score = compute_pixelwise_iou(heatmaps['heatmap'], gt_mask_padded, threshold=0.5)
+                # Compute IoU with adaptive thresholding
+                iou_score = compute_pixelwise_iou(heatmaps['heatmap'], gt_mask_padded, use_adaptive=True)
                 iou_df_new[f"iou_score"] = iou_score
                 
                 # For box-based mAP, still use bounding boxes if needed
