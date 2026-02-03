@@ -10,7 +10,9 @@ from torch.utils.data import DataLoader
 
 from pathlib import Path
 
-import os 
+import os
+
+from datetime import datetime 
 
 from PIL import Image
 
@@ -386,12 +388,11 @@ def evaluate_metrics(annotations, detections, scores, false_positives, true_posi
 def compute_pixelwise_iou(heatmap, mask, threshold=0.5):
     """
     Compute pixel-level IoU between binarized heatmap and ground truth mask.
-    This matches the approach used in grad_cam.py.
     
     Args:
         heatmap (np.ndarray or torch.Tensor): 2D heatmap, normalized to [0, 1].
         mask (np.ndarray): 2D binary mask where 1 indicates lesion region.
-        threshold (float): Threshold to binarize heatmap (default: 0.5, matching grad_cam.py).
+        threshold (float): Threshold to binarize heatmap (default: 0.5).
     
     Returns:
         float: IoU score between binarized heatmap and mask.
@@ -819,14 +820,12 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                 # Smooth heatmap with Gaussian filter
                 heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=20))
 
-                # Normalize heatmap only within the segmented mask area; set outside mask to 0
-
-                # Seg mask only has binary labels
-                
-                if (seg_mask != 0).sum() > 0:  # Check if mask has non-zero pixels
+                # Check if mask has non-zero pixels
+                if (seg_mask != 0).sum() > 0:  
                     heatmap_min = heatmap[seg_mask != 0].min()
                     heatmap_max = heatmap[seg_mask != 0].max()
-                    if heatmap_max - heatmap_min > 1e-6:  # Check if there's variation in the heatmap
+                    # Check if mask has variation
+                    if heatmap_max - heatmap_min > 1e-6:  
                         heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap_min) / (heatmap_max - heatmap_min + 1e-8), torch.tensor(0.0))
                     else:
                         print(f"WARNING: Uniform heatmap for scale {scale} (min={heatmap_min:.4f}, max={heatmap_max:.4f}), setting to zeros")
@@ -1046,21 +1045,9 @@ def run_roi_eval(directory, args, device):
         
     args.n_class = 1
 
-    # Task specificities
-    if args.label.lower() == 'mass':
-        class0 = 'not_mass'
-        class1 = 'mass'
-    elif args.label.lower() == 'suspicious_calcification':
-        class0 = 'not_calcification'
-        class1 = 'calcification'
-    elif args.label.lower() == 'anomaly':
-        class0 = 'healthy'
-        class1 = 'anomalous'
-
-    label_dict = {class0: 0, class1: 1}
-
     # Prepare output directory for ROI visualizations
-    roi_dir = os.path.join(directory, 'roi_visualization_new', args.dataset, args.roi_eval_set, args.roi_eval_scheme, f'{args.iou_method}_threshold_{args.iou_threshold}')
+    timestamp = datetime.now().strftime("%d-%m-%Y_%Hh%Mmin%Ss")
+    roi_dir = os.path.join(directory, 'results', timestamp)
     os.makedirs(roi_dir, exist_ok=True)
 
     ############################ Data Setup ############################
@@ -1090,7 +1077,7 @@ def run_roi_eval(directory, args, device):
     model.load_state_dict(checkpoint['model'], strict=False)
     model.eval()
 
-    # DETECTION PERFORMANCE 
+    # Initialize variables to store evaluation results
     if args.mil_type == 'pyramidal_mil': 
         false_positives = {}
         true_positives = {}
@@ -1122,7 +1109,7 @@ def run_roi_eval(directory, args, device):
         transforms.Normalize((-args.mean / args.std, -args.mean / args.std, -args.mean / args.std), (1.0 / args.std, 1.0 / args.std, 1.0 / args.std))
     ])
 
-    print("Iterate through the dataloader: ")
+    print("Iterate through the dataset: ")
     # Iterate over the dataloader
     for idx, data in enumerate(tqdm(dataloader)):
         # Send data to device
@@ -1141,7 +1128,7 @@ def run_roi_eval(directory, args, device):
             if boxes is None: 
                 continue 
 
-        bag_coords = data['coords']
+        bag_coords = data['coords'] # Load this patch coordinates
         bag_info = data['bag_info'][0]
 
         # Load and pad image
@@ -1150,30 +1137,24 @@ def run_roi_eval(directory, args, device):
         
         # Segment and pad with SAME padding as image
         seg_mask = Segment(transforms.ToTensor()(img))
-        padding_left, padding_right, padding_top, padding_bottom = padding
         seg_mask = F.pad(seg_mask, padding, mode='constant', value=0)
 
         # Compute heatmaps and predicted boxes        
         bag_prob, heatmaps = Compute_Heatmaps_patches(model, inputs, bag_coords, bag_info, total_num_imgs < args.visualize_num_images, seg_mask, device, args)
         
-        # Load ground truth mask for pixel-level IoU computation (matching grad_cam.py)
-        # Assuming masks are stored with same filename structure as images
+        # Load gt mask for pixel-level IoU computation
         img_filename = os.path.basename(bag_info['img_dir'])
-        mask_dir = os.path.join(args.data_dir.parent, 'masks_512')  # Adjust path as needed
+        mask_dir = os.path.join(args.data_dir.parent, 'masks_512')
         mask_path = os.path.join(mask_dir, img_filename)
         
         if os.path.exists(mask_path):
-            # Load mask: masks have 0 in ROI region (inverted), need to invert to match heatmap
+            # Load mask: invert masks so that 1 indicates ROI
             gt_mask = np.array(Image.open(mask_path).convert('L'))
-            gt_mask = (gt_mask == 0).astype(np.float32)  # Convert 0 (ROI) to 1, rest to 0
+            gt_mask = (gt_mask == 0).astype(np.float32)
             
-            # CRITICAL: Pad GT mask with SAME padding as image to maintain spatial alignment
+            # Pad gt mask with same padding as image
             gt_mask_tensor = torch.from_numpy(gt_mask)
             gt_mask_padded = F.pad(gt_mask_tensor, padding, mode='constant', value=0).numpy()
-            
-            # DO NOT mask GT with tissue segmentation - lesion annotations should be trusted
-            # The heatmap is already normalized within tissue region only
-            # Masking GT could remove valid lesion pixels if tissue segmentation is imperfect
             
             num_annotations += 1  # Count images with masks
         else:
@@ -1187,12 +1168,11 @@ def run_roi_eval(directory, args, device):
             "boxes": boxes,
         }
 
-        ############################ IoU Evaluation (Pixel-level) ############################
+        ################## IoU Evaluation (Pixel-level) ##################
         if gt_mask_padded is not None:
             if args.mil_type == 'pyramidal_mil': 
-                
                 for scale, heatmap_data in heatmaps.items():                    
-                    # Compute pixel-level IoU matching grad_cam.py approach (threshold=0.5)
+                    # Compute IoU
                     iou_score = compute_pixelwise_iou(heatmap_data['heatmap'], gt_mask_padded, threshold=0.5)
                     iou_df_new[f"iou_score_{scale}"] = iou_score
                     
@@ -1204,7 +1184,7 @@ def run_roi_eval(directory, args, device):
                     )
             
             else: # single-scale patch-based mil models
-                # Compute pixel-level IoU matching grad_cam.py approach (threshold=0.5)
+                # Compute IoU
                 iou_score = compute_pixelwise_iou(heatmaps['heatmap'], gt_mask_padded, threshold=0.5)
                 iou_df_new[f"iou_score"] = iou_score
                 
