@@ -132,14 +132,12 @@ for model_type in ['ConvNeXt', 'ViT']:
                     print("CAM output shape (batch_size, H, W):", grayscale_cam.shape)
                     grayscale_cam = grayscale_cam[0, :]
 
-                grayscale_cam = 1.0 - grayscale_cam
-
                 mask_path = os.path.join(MASKS_DIR, img_name)
 
                 if os.path.exists(mask_path):
                     # Load mask using PIL for consistency
                     mask = np.array(Image.open(mask_path).convert('L'))
-                    mask = (mask > 0).astype(np.float32)
+                    mask = (mask == 0).astype(np.float32)  # Black pixels (0) = ROI
 
                     if mask.shape != grayscale_cam.shape:
                         print(f"Resizing mask from {mask.shape} to {grayscale_cam.shape}")
