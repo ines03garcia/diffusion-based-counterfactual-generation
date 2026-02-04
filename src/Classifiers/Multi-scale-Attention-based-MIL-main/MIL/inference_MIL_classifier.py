@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import os 
+import json
 
 import torch
 from sklearn.metrics import (f1_score, balanced_accuracy_score, accuracy_score, 
@@ -126,9 +127,9 @@ def analyze_thresholds(test_targs, test_probs, test_preds):
     return best_threshold
 
 
-def compute_and_print_metrics(test_targs, test_probs, optimal_threshold, auc):
-    """Compute and print all evaluation metrics with optimal threshold."""
-    preds_optimal = (test_probs >= optimal_threshold).astype(int)
+def compute_and_print_metrics(test_targs, test_probs, threshold, auc):
+    """Compute and print all evaluation metrics with given threshold."""
+    preds_optimal = (test_probs >= threshold).astype(int)
     
     # Calculate all metrics
     accuracy = accuracy_score(test_targs, preds_optimal)
@@ -142,7 +143,7 @@ def compute_and_print_metrics(test_targs, test_probs, optimal_threshold, auc):
     tn, fp, fn, tp = cm_optimal.ravel()
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
     
-    print(f"\n=== Results with Optimal Threshold ({optimal_threshold}) ===")
+    print(f"\n=== Results with Threshold ({threshold}) ===")
     print(f"Accuracy:    {accuracy:.4f}")
     print(f"Precision:   {precision:.4f}")
     print(f"Recall:      {recall:.4f}")
@@ -153,6 +154,24 @@ def compute_and_print_metrics(test_targs, test_probs, optimal_threshold, auc):
     print(f"\nConfusion Matrix:")
     print(f"  TN={tn}, FP={fp}")
     print(f"  FN={fn}, TP={tp}")
+    
+    # Return metrics as dictionary
+    metrics = {
+        'threshold': threshold,
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f1_optimal,
+        'specificity': specificity,
+        'balanced_accuracy': bacc_optimal,
+        'roc_auc': auc,
+        'true_negatives': int(tn),
+        'false_positives': int(fp),
+        'false_negatives': int(fn),
+        'true_positives': int(tp)
+    }
+    
+    return metrics
 
 
 def run_eval(run_path, args, device):
@@ -184,11 +203,31 @@ def run_eval(run_path, args, device):
     # Print results
     print_scale_metrics(test_results, args)
     
-    # Threshold analysis and final metrics
+    # Create results_inference subfolder
+    results_dir = os.path.join(run_path, 'results_inference')
+    os.makedirs(results_dir, exist_ok=True)
+    
+    # Compute metrics with fixed threshold of 0.5
+    threshold = 0.5
+    metrics = None
     if 'cf_matrix' in test_results['aggregated'] and test_results['aggregated']['cf_matrix'] is not None:
-        best_threshold = analyze_thresholds(test_targs, test_probs, test_preds)
-        compute_and_print_metrics(test_targs, test_probs, best_threshold, 
-                                  test_results['aggregated']['auc_roc'])
+        metrics = compute_and_print_metrics(test_targs, test_probs, threshold, 
+                                           test_results['aggregated']['auc_roc'])
+    
+    if metrics is not None:
+        # Round float metrics to 4 decimal places
+        rounded_metrics = {}
+        for key, value in metrics.items():
+            if isinstance(value, float):
+                rounded_metrics[key] = round(value, 4)
+            else:
+                rounded_metrics[key] = value
+        
+        # Save metrics as JSON
+        metrics_path = os.path.join(results_dir, f'{args.eval_set}_metrics.json')
+        with open(metrics_path, 'w') as f:
+            json.dump(rounded_metrics, f, indent=4)
+        print(f"\nSaved {args.eval_set} metrics to: {metrics_path}")
     
     # Prepare results dataframe
     final_results_data = {}
