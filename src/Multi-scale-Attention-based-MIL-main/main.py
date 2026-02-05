@@ -252,7 +252,7 @@ def main(args):
         
     elif args.evaluation:
         args.output_path = Path(f"{args.output_dir}/{args.label}/inference/{now}") 
-        Eval(args, device) 
+        Eval(args, device)
 
     elif args.roi_eval:
         args.output_path = Path(f"{args.output_dir}/{args.label}/roi_eval/{now}") 

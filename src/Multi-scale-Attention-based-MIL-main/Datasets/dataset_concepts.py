@@ -43,7 +43,7 @@ def filter_bounding_boxes(finding_categories, boxes, label_name):
         box_categories = cleaned_categories[i]
         
         # Check if label_name is present
-        if any(category == label_name for category in (box_categories if isinstance(box_categories, list) else [box_categories])):
+        if label_name == "anomaly" or any(category == label_name for category in (box_categories if isinstance(box_categories, list) else [box_categories])):
                 
             xmin = xmin_list[i]
             xmax = xmax_list[i]
@@ -267,10 +267,8 @@ class Generic_MIL_Dataset_Detection(Dataset):
         # Determine if feature extraction is online (from images) or offline (from features)
         self.feature_extraction = True if args.feature_extraction == 'online' else False 
 
-        if self.feature_extraction: 
-            # For online feature extraction, only image directory is needed
-            self.img_dir = args.data_dir / args.img_dir
-        else: 
+        # For online feature extraction, only image directory is needed
+        if not self.feature_extraction: 
             # For offline feature extraction, set feature directory based on MIL model type
             if args.multi_scale_model == 'msp': 
                 # multi-scale patch-based MIL model 
@@ -282,8 +280,7 @@ class Generic_MIL_Dataset_Detection(Dataset):
                 # single-scale MIL model 
                 self.feat_dir = args.data_dir / args.feat_dir / f'patch_size-{args.scales[0]}'
                     
-            self.img_dir = args.data_dir / args.img_dir
-            
+        self.img_dir = args.img_dir
         self.dataset = args.dataset
         self.transform = transform
         self.label = args.label
@@ -291,11 +288,7 @@ class Generic_MIL_Dataset_Detection(Dataset):
         self.multi_scale_model = args.multi_scale_model
         self.scales = args.scales 
         
-        if args.label == 'Suspicious_Calcification':
-            self.label_type = 'Suspicious Calcification' 
-        else: 
-            self.label_type = args.label 
-
+        self.label_type = args.label 
         self.image_dict = self._generate_image_dict()
 
     def _generate_image_dict(self):
@@ -322,6 +315,8 @@ class Generic_MIL_Dataset_Detection(Dataset):
         for idx, row in self.df.iterrows():
             
             finding_categories = row["finding_categories"]
+            if "No Finding" in finding_categories:
+                continue
 
             # Extract bounding boxes, convert coordinates to floats
             boxes = [
@@ -336,7 +331,7 @@ class Generic_MIL_Dataset_Detection(Dataset):
 
             # If any valid bounding boxes exist, append data to image_dict
             if any(boxes): 
-                img_path = self.img_dir / str(self.df.iloc[idx]['patient_id']) / str(self.df.iloc[idx]['image_id'])
+                img_path = os.path.join(self.img_dir, str(self.df.iloc[idx]['patient_id']), str(self.df.iloc[idx]['image_id']))
                 image_dict["img_path"].append(img_path) 
                 image_dict["boxes"].append(boxes)
                 image_dict["labels"].append(1) # Label is 1 indicating presence of the finding
@@ -443,8 +438,8 @@ class Generic_MIL_Dataset_Detection(Dataset):
                 bag_info = {
                         'patch_size': patch_size, 
                         'step_size': patch_size - int(patch_size * self.args.overlap[0]), 
-                        'img_height': self.args.img_size[0] + padding_top + padding_bottom,
-                        'img_width': self.args.img_size[1] + padding_left + padding_right,
+                        'img_height': int(self.args.img_size[0]) + padding_top + padding_bottom,
+                        'img_width': int(self.args.img_size[1]) + padding_left + padding_right,
                         'img_dir': img_path
                     }
 
