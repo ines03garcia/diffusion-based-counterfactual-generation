@@ -186,7 +186,7 @@ def main(args):
         # From MammoCLIP's work 
         if args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "mass":
             args.BCE_weights = 15.573306370070778
-        elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "suspicious_calcification":
+        elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and (args.label.lower() == "suspicious_calcification" or args.label.lower() == "anomaly"):
             args.BCE_weights = 37.296728971962615
         elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "anomaly":
             args.BCE_weights = 13.673514

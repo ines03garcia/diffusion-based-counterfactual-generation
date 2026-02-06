@@ -127,6 +127,15 @@ def Get_Predicted_Class(label, predicted_class, label_type):
             prefix = ''
         
         pred_class = 'not calcification' if predicted_class < 0.5 else 'calcification'
+
+    elif label_type.lower() == 'anomaly':
+        if label == 0:
+            prefix = 'healthy'
+        elif label == 1:
+            prefix = 'anomalous'
+        else:
+            prefix = ''
+        pred_class = 'healthy' if predicted_class < 0.5 else 'anomalous'
     
     return f'{prefix} | Pred: {pred_class}'
     
@@ -530,7 +539,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
     img_w = bag_info['img_width']
     
     if args.mil_type == 'embedding' and (args.pooling_type in ['gated-attention', 'attention', 'pma']):  # single-level patch-based MIL models 
-
+        
         patch_size = bag_info['patch_size']
 
         # Get instance-level attention scores from the model
@@ -566,6 +575,12 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
 
         # Normalize heatmap only within the segmented mask area; set outside mask to 0
         heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap[seg_mask != 0].min()) / (heatmap[seg_mask != 0].max() - heatmap[seg_mask != 0].min()), torch.tensor(0.0))
+        hm = heatmap['heatmap']  # or the array you threshold
+        print(f"Scale {scale}: min={hm.min():.4f} max={hm.max():.4f} mean={hm.mean():.4f}")
+        
+        # if you already have a threshold:
+        print(f"Scale {scale}: thr={thr:.4f} pixels_above={(hm>thr).sum()}")
+        print(f"Scale {scale}: #pred_bboxes={len(heatmap['pred_bboxes'] or [])}")
 
         # Extract bounding boxes from heatmap
         predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
@@ -674,10 +689,8 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                     aggregated_heatmap += heatmap * (1/len(args.scales))
     
         else:  # Not nested model
-
             # Get instance-level attention scores for all scales from the model
             scale_attentions_dict = model.get_patch_scores()
-
             # If scale aggregator uses concatenation or gated-attention, also get scale scores
             if args.type_scale_aggregator in ['concatenation', 'gated-attention']: 
                 scale_scores = model.get_scale_scores().detach().cpu()
@@ -755,7 +768,11 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                 heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=10))
 
                 # Normalize heatmap values only inside the segmentation mask, zero outside
-                heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap[seg_mask != 0].min()) / (heatmap[seg_mask != 0].max() - heatmap[seg_mask != 0].min()), torch.tensor(0.0))
+                if (seg_mask != 0).sum() > 0:
+                    heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap[seg_mask != 0].min()) / (heatmap[seg_mask != 0].max() - heatmap[seg_mask != 0].min()), torch.tensor(0.0))
+                else:
+                    print(f"WARNING: Empty segmentation mask for scale {scale}, heatmap will be all zeros")
+                    heatmap = torch.zeros_like(heatmap)
 
                 # Extract bounding boxes from heatmap
                 predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
@@ -768,7 +785,6 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                         "pred_bboxes": predicted_bboxes,
                         "scale_score": scale_score
                     }
-                        
                     aggregated_heatmap += heatmap * scale_score
     
                 elif args.type_scale_aggregator in ['max_p', 'mean_p']:
@@ -793,7 +809,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                     "heatmap": aggregated_heatmap,
                     "pred_bboxes": predicted_bboxes
                 }
-        
+
     return bag_prob, heatmaps
 
     
@@ -972,18 +988,23 @@ def run_roi_eval(directory, args, device):
         class1 = 'mass'
     elif args.label.lower() == 'suspicious_calcification':
         class0 = 'not_calcification'
-        class1 = 'calcification'   
+        class1 = 'calcification'
+    elif args.label.lower() == 'anomaly':
+        class0 = 'healthy'
+        class1 = 'anomalous'
 
     label_dict = {class0: 0, class1: 1}
 
     # Prepare output directory for ROI visualizations
     roi_dir = os.path.join(directory, 'roi_visualization_new', args.dataset, args.roi_eval_set, args.roi_eval_scheme, f'{args.iou_method}_threshold_{args.iou_threshold}')
     os.makedirs(roi_dir, exist_ok=True)
+    print("\nroi_dir")
+    print(roi_dir)
 
     ############################ Data Setup ############################
     args.data_dir = Path(args.data_dir)
     
-    args.df = pd.read_csv(args.data_dir / args.csv_file)
+    args.df = pd.read_csv(args.csv_file)
     args.df = args.df.fillna(0)
     
     if args.dataset == 'ViNDr':
@@ -1004,7 +1025,7 @@ def run_roi_eval(directory, args, device):
     model.to(device)
 
     # Load checkpoint and set model to eval mode
-    checkpoint = torch.load(os.path.join(directory, 'best_model.pth'), map_location='cpu')
+    checkpoint = torch.load(os.path.join(directory, 'best_model.pth'), map_location='cpu', weights_only = False)
     model.load_state_dict(checkpoint['model'], strict=False)
     model.eval()
 
@@ -1041,6 +1062,7 @@ def run_roi_eval(directory, args, device):
     ])
     
     # Iterate over the dataloader
+    print(f"Iterating through {str(len(dataloader))} images")
     for idx, data in enumerate(tqdm(dataloader)):
 
         # Send data to device
@@ -1066,8 +1088,9 @@ def run_roi_eval(directory, args, device):
         # Load and pad image
         img = Image.open(bag_info['img_dir']).convert('RGB')
         image_rgb, padding = pad_image(transforms.ToTensor()(img), args.patch_size)
+        
         seg_mask = Segment(transforms.ToTensor()(img))
-        seg_mask, _ = pad_image(seg_mask, args.patch_size)        
+        seg_mask = F.pad(seg_mask, padding, mode='constant', value=0)
 
         # Compute heatmaps and predicted boxes
         bag_prob, heatmaps = Compute_Heatmaps_patches(model, inputs, bag_coords, bag_info, total_num_imgs < args.visualize_num_images, seg_mask, device, args)
@@ -1085,8 +1108,8 @@ def run_roi_eval(directory, args, device):
             for scale, heatmap in heatmaps.items(): 
                 
                 scores[scale], iou_scores, false_positives[scale], true_positives[scale] = evaluate_metrics(boxes, heatmap['pred_bboxes'], scores[scale], false_positives[scale], true_positives[scale], args.iou_threshold, args.iou_method)
-                    
-                iou_df_new[f"iou_score_{scale}"] = np.max(iou_scores)
+                max_iou = float(np.max(iou_scores)) if len(iou_scores) > 0 else np.nan
+                iou_df_new[f"iou_score_{scale}"] = max_iou
         
         else: # single-scale patch-based mil models 
             scores, iou_scores, false_positives, true_positives = evaluate_metrics(boxes, heatmaps['pred_bboxes'], scores, false_positives, true_positives, args.iou_threshold, args.iou_method)
@@ -1230,13 +1253,14 @@ def run_roi_eval(directory, args, device):
         
         # Collect results for this scale
         results.append(average_precision_area)
-        
+
+    print("\nRESULTS")
     # Convert the results list to a DataFrame
     results_df = pd.DataFrame(results)
-
-    print(results_df)
+    print(results_df.head)
     
     results_df.to_csv(os.path.join(roi_dir, 'roi_eval_results.csv'), index = False)
+    print("RESULTS SAVED TO CSV AT: ", roi_dir)
 
     del indices, false_positives, true_positives, recall, precision, average_precision_area, average_precision_11points; clear_memory()
 
