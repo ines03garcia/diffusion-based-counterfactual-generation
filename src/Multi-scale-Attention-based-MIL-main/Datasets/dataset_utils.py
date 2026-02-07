@@ -402,8 +402,7 @@ def MIL_dataloader(split_df, split, args):
             collate_fn=collate_MIL_patches 
         )
         
-    else: 
-                
+    else:        
         loader = DataLoader(
             split_dataset, 
             batch_size=args.batch_size if not args.roi_eval else 1, 

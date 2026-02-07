@@ -15,7 +15,7 @@ from tqdm import tqdm
 from Datasets.dataset_utils import MIL_dataloader
 from MIL import build_model 
 
-from utils.metrics import auroc, evaluate_metrics
+from utils.metrics import auroc, evaluate_metrics, print_metrics, save_metrics_json
 from utils.generic_utils import seed_all, AverageMeter, timeSince, print_network, clear_memory 
 from utils.training_setup_utils import initialize_training_setup, Training_Stage_Config
 from utils.plot_utils import plot_loss_and_acc_curves, plot_lrs_scheduler, plot_confusion_matrix, ROC_curves
@@ -667,7 +667,7 @@ def train_fn(train_loader, model, criterion, optimizer, epoch, args, scheduler, 
                 y_probs = logits.sigmoid().detach()
                 y_probs = y_probs.nan_to_num()
                 
-                y_preds = (y_probs > 0.5).float()
+                y_preds = (y_probs >= 0.5).float()
     
                 probs['aggregated'].append(y_probs.cpu().numpy())
                 preds['aggregated'].append(y_preds.cpu().numpy())
@@ -928,13 +928,8 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
 
         aucroc = auroc(targs, probs)
         metrics = evaluate_metrics(targs, preds, all=True)
-
-        parts = []
-        for k, v in metrics.items():
-            if isinstance(v, (float, int, np.floating, np.integer)):
-                parts.append(f"{k}={float(v):.4f}")
-        print(" | ".join(parts))
-        print(aucroc)
+        print_metrics(metrics, aucroc)
+        save_metrics_json(metrics, args)
         
         cf_matrix = confusion_matrix(targs, preds) if split == 'test' else None
             

@@ -1,3 +1,5 @@
+import os
+import json
 import numpy as np
 from sklearn.metrics import auc, precision_recall_curve, accuracy_score, roc_auc_score, average_precision_score, balanced_accuracy_score, precision_recall_fscore_support, confusion_matrix
 
@@ -11,6 +13,10 @@ def evaluate_metrics(labels, predictions, all = False):
 
     if not all:
         return f1, balanced_accuracy
+
+    cm_optimal = confusion_matrix(labels, predictions)
+    tn, fp, fn, tp = cm_optimal.ravel()
+    spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
         
     out = {
         "acc": float(accuracy_score(y_true, y_pred)),
@@ -18,9 +24,51 @@ def evaluate_metrics(labels, predictions, all = False):
         "precision": float(p),
         "recall": float(r),
         "f1": float(f1),
+        "specificity": float(spec),
+        "tn": float(tn),
+        "fp": float(fp),
+        "fn": float(fn),
+        "tp": float(tp),
     }
     return out    
+
+def print_metrics(metrics, aucroc):
+    print(f"\n{'='*20}")
+    print(f"Classification Metrics")
+    print(f"{'='*20}")
+    
+    # Performance metrics
+    print(f"Accuracy:       {metrics['acc']:.4f}")
+    print(f"Balanced Acc:   {metrics['bacc']:.4f}")
+    print(f"Precision:      {metrics['precision']:.4f}")
+    print(f"Recall:         {metrics['recall']:.4f}")
+    print(f"Specificity:    {metrics['specificity']:.4f}")
+    print(f"F1-Score:       {metrics['f1']:.4f}")
+    print(f"ROC-AUC:        {aucroc:.4f}")
+    
+    # Confusion matrix
+    print(f"\nConfusion Matrix:")
+    print(f"                Predicted")
+    print(f"              Neg    Pos")
+    print(f"Actual  Neg  {int(metrics['tn']):4d}  {int(metrics['fp']):4d}")
+    print(f"        Pos  {int(metrics['fn']):4d}  {int(metrics['tp']):4d}")
+    print(f"{'='*20}\n")
+
+def save_metrics_json(metrics, args):
+    if metrics is not None:
+        # Round float metrics to 4 decimal places
+        rounded_metrics = {}
+        for key, value in metrics.items():
+            if isinstance(value, float):
+                rounded_metrics[key] = round(value, 4)
+            else:
+                rounded_metrics[key] = value
         
+        # Save metrics as JSON
+        metrics_path = os.path.join(args.output_dir, f'{args.eval_set}_metrics.json')
+        with open(metrics_path, 'w') as f:
+            json.dump(rounded_metrics, f, indent=4)
+        print(f"\nSaved {args.eval_set} metrics to: {metrics_path}")
 
 def compute_AUC(gt, pred):
     """Computes Area Under the Curve (AUC) from prediction scores.

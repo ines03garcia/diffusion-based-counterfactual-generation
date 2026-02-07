@@ -72,8 +72,6 @@ class BagDataset(Dataset):
         self.dir_path = args.data_dir / args.img_dir
         self.dataset = args.dataset
         self.transform = transform
-        
-        print(transform)
 
     def __len__(self):
         return len(self.df)
