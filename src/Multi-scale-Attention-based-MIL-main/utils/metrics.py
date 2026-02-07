@@ -2,11 +2,25 @@ import numpy as np
 from sklearn.metrics import auc, precision_recall_curve, accuracy_score, roc_auc_score, average_precision_score, balanced_accuracy_score, precision_recall_fscore_support, confusion_matrix
 
 
-def evaluate_metrics(labels, predictions):
-    _, _, f1_score, _ = precision_recall_fscore_support(labels, predictions, average='weighted', zero_division=1)
-    balanced_accuracy = balanced_accuracy_score(labels, predictions)
-    
-    return f1_score, balanced_accuracy
+def evaluate_metrics(labels, predictions, all = False):
+    y_true = np.asarray(labels).astype(int)
+    y_pred = np.asarray(predictions).astype(int)
+
+    p, r, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="binary", zero_division=1)
+    balanced_accuracy = balanced_accuracy_score(y_true, y_pred)
+
+    if not all:
+        return f1, balanced_accuracy
+        
+    out = {
+        "acc": float(accuracy_score(y_true, y_pred)),
+        "bacc": float(balanced_accuracy),
+        "precision": float(p),
+        "recall": float(r),
+        "f1": float(f1),
+    }
+    return out    
+        
 
 def compute_AUC(gt, pred):
     """Computes Area Under the Curve (AUC) from prediction scores.

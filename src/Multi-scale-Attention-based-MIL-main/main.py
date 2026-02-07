@@ -159,7 +159,9 @@ def config():
     parser.add_argument("--running-interactive", default='n', type=str)
     parser.add_argument('--eval_scheme', default='kruns_train+val', type=str, help='Evaluation scheme [kruns_train+val | kfold_cv+test ]')
     parser.add_argument('--resume', default = None, type = str) 
-    parser.add_argument('--test_example', default = None, type = str) 
+    parser.add_argument('--test_example', default = None, type = str)
+    
+    parser.add_argument('--cf_aug', action='store_true', default=False)
     
     return parser.parse_args()
 
@@ -190,7 +192,10 @@ def main(args):
         elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "suspicious_calcification":
             args.BCE_weights = 37.296728971962615
         elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "anomaly":
-            args.BCE_weights = 2.0331
+            if args.cf_aug:
+                args.BCE_weights = 2.2607
+            else:
+                args.BCE_weights = 1.9956
         
         if args.mil_type: 
 

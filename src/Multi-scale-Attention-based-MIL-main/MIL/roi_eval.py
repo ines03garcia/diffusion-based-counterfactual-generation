@@ -10,7 +10,9 @@ from torch.utils.data import DataLoader
 
 from pathlib import Path
 
-import os 
+import os
+
+from datetime import datetime 
 
 from PIL import Image
 
@@ -128,14 +130,15 @@ def Get_Predicted_Class(label, predicted_class, label_type):
         
         pred_class = 'not calcification' if predicted_class < 0.5 else 'calcification'
 
-    elif label_type.lower() == 'anomaly':
+    if label_type.lower() == 'anomaly':
         if label == 0:
             prefix = 'healthy'
         elif label == 1:
             prefix = 'anomalous'
         else:
             prefix = ''
-        pred_class = 'healthy' if predicted_class < 0.5 else 'anomalous'
+
+        pred_class = 'healthy' if predicted_class < 0.5 else 'anomalous'        
     
     return f'{prefix} | Pred: {pred_class}'
     
@@ -356,7 +359,7 @@ def evaluate_metrics(annotations, detections, scores, false_positives, true_posi
     detected_annotations = []
 
     iou_scores = []
-    
+
     for d in detections:
         scores = np.append(scores, d[4])
         
@@ -380,6 +383,74 @@ def evaluate_metrics(annotations, detections, scores, false_positives, true_posi
             true_positives = np.append(true_positives, 0)
 
     return scores, iou_scores, false_positives, true_positives
+
+
+def compute_pixelwise_iou(heatmap, mask, threshold=0.5, use_adaptive=True):
+    """
+    Compute pixel-level IoU between binarized heatmap and ground truth mask.
+    
+    Args:
+        heatmap (np.ndarray or torch.Tensor): 2D heatmap, normalized to [0, 1].
+        mask (np.ndarray): 2D binary mask where 1 indicates lesion region.
+        threshold (float): Threshold to binarize heatmap (default: 0.5, used only if use_adaptive=False).
+        use_adaptive (bool): If True, tries multiple thresholds and returns the best IoU.
+    
+    Returns:
+        float: IoU score between binarized heatmap and mask.
+    """
+    # Convert to numpy if torch tensor
+    if isinstance(heatmap, torch.Tensor):
+        heatmap = heatmap.cpu().numpy()
+    
+    if not use_adaptive:
+        # Original fixed threshold approach
+        binary_heatmap = (heatmap > threshold).astype(np.float32)
+        intersection = np.sum(binary_heatmap * mask)
+        union = np.sum(((binary_heatmap + mask) > 0).astype(np.float32))
+        if union == 0:
+            return 0.0
+        return intersection / union
+    
+    # Adaptive thresholding: try multiple thresholds and pick the best
+    heatmap_in_mask = heatmap[mask > 0]
+    
+    if len(heatmap_in_mask) == 0:
+        return 0.0
+    
+    # Define candidate thresholds
+    thresholds = [
+        0.3, 0.4, 0.5, 0.6, 0.7,
+        np.percentile(heatmap_in_mask, 50),  # median
+        np.percentile(heatmap_in_mask, 70),  # 70th percentile
+        np.percentile(heatmap_in_mask, 80),  # 80th percentile
+    ]
+    
+    # Add Otsu threshold if possible
+    try:
+        heatmap_uint8 = (heatmap_in_mask * 255).astype(np.uint8)
+        otsu_thresh = threshold_otsu(heatmap_uint8) / 255.0
+        thresholds.append(otsu_thresh)
+    except:
+        pass
+    
+    # Remove duplicates and invalid thresholds
+    thresholds = [t for t in set(thresholds) if 0 < t < 1]
+    
+    if not thresholds:
+        thresholds = [0.5]
+    
+    # Try each threshold and keep the best IoU
+    best_iou = 0.0
+    for thresh in thresholds:
+        binary_heatmap = (heatmap > thresh).astype(np.float32)
+        intersection = np.sum(binary_heatmap * mask)
+        union = np.sum(((binary_heatmap + mask) > 0).astype(np.float32))
+        
+        if union > 0:
+            iou = intersection / union
+            best_iou = max(best_iou, iou)
+    
+    return best_iou
 
 
 def get_cumlative_attention(cam, bbox):
@@ -412,9 +483,12 @@ def extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=0.98, max_bb
         list: List of bounding boxes with scores, in the format [x_min, y_min, x_max, y_max, score].
     """
 
-    # Threshold heatmap based on quantile and minimum value
+    # Threshold heatmap based on quantile
     q = np.quantile(heatmap, quantile_threshold)
-    mask = (heatmap > q) & (heatmap > 0.5)
+    
+    # Use adaptive lower bound: either 0.1 (softer) or half the quantile value
+    adaptive_lower_bound = min(0.1, q / 2.0)
+    mask = (heatmap > q) & (heatmap > adaptive_lower_bound)
     
     # label connected pixels in the binary mask
     label_im, nb_labels = ndimage.label(mask)
@@ -501,8 +575,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                      seg_mask, 
                      device, 
                      args=None): 
-
-    
+  
     # (1) Compute the output of the model with mixed precision (more efficient)
     with torch.cuda.amp.autocast():
     
@@ -537,9 +610,9 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
 
     img_h = bag_info['img_height']
     img_w = bag_info['img_width']
-    
+
     if args.mil_type == 'embedding' and (args.pooling_type in ['gated-attention', 'attention', 'pma']):  # single-level patch-based MIL models 
-        
+
         patch_size = bag_info['patch_size']
 
         # Get instance-level attention scores from the model
@@ -571,31 +644,35 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
         heatmap = torch.where(attention_map_counts == 0, torch.tensor(0.0), torch.div(attention_map, attention_map_counts))
 
         # Smooth the heatmap with a Gaussian filter for better visualization
-        heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=10*2))
+        heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=20))
 
         # Normalize heatmap only within the segmented mask area; set outside mask to 0
-        heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap[seg_mask != 0].min()) / (heatmap[seg_mask != 0].max() - heatmap[seg_mask != 0].min()), torch.tensor(0.0))
-        hm = heatmap['heatmap']  # or the array you threshold
-        print(f"Scale {scale}: min={hm.min():.4f} max={hm.max():.4f} mean={hm.mean():.4f}")
-        
-        # if you already have a threshold:
-        print(f"Scale {scale}: thr={thr:.4f} pixels_above={(hm>thr).sum()}")
-        print(f"Scale {scale}: #pred_bboxes={len(heatmap['pred_bboxes'] or [])}")
+        if (seg_mask != 0).sum() > 0:  # Check if mask has non-zero pixels
+            heatmap_min = heatmap[seg_mask != 0].min()
+            heatmap_max = heatmap[seg_mask != 0].max()
+            if heatmap_max - heatmap_min > 1e-6:  # Check if there's variation in the heatmap
+                heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap_min) / (heatmap_max - heatmap_min + 1e-8), torch.tensor(0.0))
+            else:
+                heatmap = torch.zeros_like(heatmap)
+        else:
+            print(f"WARNING: Empty segmentation mask, heatmap will be all zeros")
+            heatmap = torch.zeros_like(heatmap)
 
         # Extract bounding boxes from heatmap
         predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
+        
+        if len(predicted_bboxes) == 0:
+            print(f"WARNING: No bounding boxes extracted. Heatmap stats - min: {heatmap.min():.4f}, max: {heatmap.max():.4f}, mean: {heatmap.mean():.4f}, non-zero: {(heatmap > 0).sum().item()}")
 
         # dictionary with heatmap and predicted bounding boxes
         heatmaps = {
             "heatmap": heatmap, 
             "pred_bboxes": predicted_bboxes
         }
-        
-    elif args.mil_type == 'pyramidal_mil' and args.pooling_type in ['gated-attention', 'attention', 'pma']:
 
+    elif args.mil_type == 'pyramidal_mil' and args.pooling_type in ['gated-attention', 'attention', 'pma']:
         # if the model is nested, process inner attention scores
         if args.nested_model:
-
             # Get inner attention scores per scale and region
             inner_attentions_dict = model.get_inner_scores()
             patch_attentions_dict = model.get_patch_scores()
@@ -661,13 +738,26 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                 heatmap = torch.where(attention_map_counts == 0, torch.tensor(0.0), torch.div(attention_map, attention_map_counts))
 
                 # Smooth heatmap with Gaussian filter
-                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=10*2))
+                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=20))
 
                 # Normalize heatmap only within the segmented mask area; set outside mask to 0
-                heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap[seg_mask != 0].min()) / (heatmap[seg_mask != 0].max() - heatmap[seg_mask != 0].min()), torch.tensor(0.0))
+                if (seg_mask != 0).sum() > 0:  # Check if mask has non-zero pixels
+                    heatmap_min = heatmap[seg_mask != 0].min()
+                    heatmap_max = heatmap[seg_mask != 0].max()
+                    if heatmap_max - heatmap_min > 1e-6:  # Check if there's variation in the heatmap
+                        heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap_min) / (heatmap_max - heatmap_min + 1e-8), torch.tensor(0.0))
+                    else:
+                        print(f"WARNING: Uniform heatmap for scale {scale} (min={heatmap_min:.4f}, max={heatmap_max:.4f}), setting to zeros")
+                        heatmap = torch.zeros_like(heatmap)
+                else:
+                    print(f"WARNING: Empty segmentation mask for scale {scale}, heatmap will be all zeros")
+                    heatmap = torch.zeros_like(heatmap)
 
                 # Extract bounding boxes from heatmap
                 predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
+                
+                if len(predicted_bboxes) == 0:
+                    print(f"WARNING: No bounding boxes for scale {scale}. Heatmap stats - min: {heatmap.min():.4f}, max: {heatmap.max():.4f}, mean: {heatmap.mean():.4f}")
 
                 # Store heatmap and bounding boxes for current scale in dict
                 if args.type_scale_aggregator in ['concatenation', 'gated-attention']: 
@@ -689,8 +779,10 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                     aggregated_heatmap += heatmap * (1/len(args.scales))
     
         else:  # Not nested model
+
             # Get instance-level attention scores for all scales from the model
             scale_attentions_dict = model.get_patch_scores()
+
             # If scale aggregator uses concatenation or gated-attention, also get scale scores
             if args.type_scale_aggregator in ['concatenation', 'gated-attention']: 
                 scale_scores = model.get_scale_scores().detach().cpu()
@@ -718,13 +810,30 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                     bag_coords_scale = bag_coords[scale] if scale != 'aggregated' else bag_coords[args.scales[0]]
                     patch_size = bag_info[scale]['patch_size'] if scale != 'aggregated' else args.scales[0]
     
-                elif args.multi_scale_model in ['fpn', 'backbone_pyramid']:         
+                elif args.multi_scale_model in ['fpn', 'backbone_pyramid']:
                     bag_coords_scale = bag_coords
                     patch_size = bag_info['patch_size']
 
                     # Calculate ratio for reshaping pixel-level attention scores spatially
                     ratio = patch_size/scale if scale != 'aggregated' else patch_size/args.scales[0]
-                    attention_scores = attention_scores.reshape(len(bag_coords_scale), math.ceil(ratio), math.ceil(ratio)) 
+                    # Calculate actual spatial dimension: total_elements / num_patches, then sqrt
+                    spatial_dim = int(math.sqrt(attention_scores.numel() / len(bag_coords_scale)))
+                    
+                    # Debug: Check if spatial_dim is valid
+                    expected_total = len(bag_coords_scale) * spatial_dim * spatial_dim
+                    if spatial_dim == 0 or expected_total != attention_scores.numel():
+                        print(f"WARNING Scale {scale}: spatial_dim={spatial_dim}, attention_scores.numel()={attention_scores.numel()}, num_patches={len(bag_coords_scale)}, expected_total={expected_total}")
+                        # If reshape won't work, try to fix it
+                        if attention_scores.numel() == len(bag_coords_scale):
+                            # Scalar attention per patch - add dummy spatial dimensions
+                            spatial_dim = 1
+                            attention_scores = attention_scores.reshape(len(bag_coords_scale), 1, 1)
+                            print(f"  -> Treating as scalar attention per patch")
+                        else:
+                            print(f"  -> Cannot reshape properly, skipping this scale")
+                            continue
+                    else:
+                        attention_scores = attention_scores.reshape(len(bag_coords_scale), spatial_dim, spatial_dim)
 
                 # Initialize empty tensors for accumulating attention values and counts
                 attention_map = torch.zeros(img_h, img_w)
@@ -743,17 +852,24 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                     x_end = min(img_w, x+patch_size)
                     y_start = max(0, y)
                     y_end = min(img_h, y+patch_size)
-                        
+                    
+                    # Debug patch size
+                    patch_h = y_end - y_start
+                    patch_w = x_end - x_start
+                    
                     if args.multi_scale_model in ['fpn', 'backbone_pyramid']:
-                        
                         # Upsample the spatial attention patch map to full patch size
                         patch_map = F.interpolate(attention_scores[patch_idx].unsqueeze(0).unsqueeze(0), size=(patch_size, patch_size), mode='bilinear', align_corners=True).detach().cpu().squeeze()
 
-                        # Normalize patch_map to [0,1]
-                        patch_map = (patch_map - patch_map.min()) / (patch_map.max() - patch_map.min() + torch.finfo(torch.float16).eps)
+                        # Normalize patch_map to [0,1] only if there's variation
+                        patch_min = patch_map.min()
+                        patch_max = patch_map.max()
+                        if patch_max - patch_min > 1e-8:  # Only normalize if there's variation
+                            patch_map = (patch_map - patch_min) / (patch_max - patch_min + torch.finfo(torch.float16).eps)
+                        # else: keep original values (uniform patch from scalar attention)
 
                         # Add normalized patch attention to the aggregated attention map for this scale
-                        attention_map[y_start:y_end, x_start:x_end] += patch_map
+                        attention_map[y_start:y_end, x_start:x_end] += patch_map[:patch_h, :patch_w]
                         
                     elif args.multi_scale_model == 'msp':
                         # Directly add scalar patch-level attention score for this patch to the attention map region
@@ -761,30 +877,41 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                         
                     attention_map_counts[y_start:y_end, x_start:x_end] += 1
 
-                # Compute average attention per pixel
+                # Average attention values by dividing sum by count
                 heatmap = torch.where(attention_map_counts == 0, torch.tensor(0.0), torch.div(attention_map, attention_map_counts))
 
-                # Apply Gaussian smoothing
-                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=10))
+                # Smooth heatmap with Gaussian filter
+                heatmap = torch.from_numpy(gaussian_filter(heatmap, sigma=20))
 
-                # Normalize heatmap values only inside the segmentation mask, zero outside
-                if (seg_mask != 0).sum() > 0:
-                    heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap[seg_mask != 0].min()) / (heatmap[seg_mask != 0].max() - heatmap[seg_mask != 0].min()), torch.tensor(0.0))
+                # Check if mask has non-zero pixels
+                if (seg_mask != 0).sum() > 0:  
+                    heatmap_min = heatmap[seg_mask != 0].min()
+                    heatmap_max = heatmap[seg_mask != 0].max()
+                    # Check if mask has variation
+                    if heatmap_max - heatmap_min > 1e-6:  
+                        heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap_min) / (heatmap_max - heatmap_min + 1e-8), torch.tensor(0.0))
+                    else:
+                        print(f"WARNING: Uniform heatmap for scale {scale} (min={heatmap_min:.4f}, max={heatmap_max:.4f}), setting to zeros")
+                        heatmap = torch.zeros_like(heatmap)
                 else:
                     print(f"WARNING: Empty segmentation mask for scale {scale}, heatmap will be all zeros")
                     heatmap = torch.zeros_like(heatmap)
 
                 # Extract bounding boxes from heatmap
                 predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
+                
+                if len(predicted_bboxes) == 0:
+                    print(f"WARNING: No bounding boxes for scale {scale}. Heatmap stats - min: {heatmap.min():.4f}, max: {heatmap.max():.4f}, mean: {heatmap.mean():.4f}")
 
                 # Store heatmap and bounding boxes for each scale
-                if args.type_scale_aggregator in ['concatenation', 'gated-attention']: 
+                if args.type_scale_aggregator in ['concatenation', 'gated-attention']:
     
                     heatmaps[scale] = {
                         "heatmap": heatmap,
                         "pred_bboxes": predicted_bboxes,
                         "scale_score": scale_score
                     }
+                        
                     aggregated_heatmap += heatmap * scale_score
     
                 elif args.type_scale_aggregator in ['max_p', 'mean_p']:
@@ -797,7 +924,6 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
 
         # If aggregated heatmap is not already included in heatmaps dict
         if 'aggregated' not in heatmaps:
-
             # Normalize aggregated heatmap to [0,1]
             aggregated_heatmap = (aggregated_heatmap - aggregated_heatmap.min()) / (aggregated_heatmap.max() - aggregated_heatmap.min())  
 
@@ -982,28 +1108,13 @@ def run_roi_eval(directory, args, device):
         
     args.n_class = 1
 
-    # Task specificities
-    if args.label.lower() == 'mass':
-        class0 = 'not_mass'
-        class1 = 'mass'
-    elif args.label.lower() == 'suspicious_calcification':
-        class0 = 'not_calcification'
-        class1 = 'calcification'
-    elif args.label.lower() == 'anomaly':
-        class0 = 'healthy'
-        class1 = 'anomalous'
-
-    label_dict = {class0: 0, class1: 1}
-
     # Prepare output directory for ROI visualizations
-    roi_dir = os.path.join(directory, 'roi_visualization_new', args.dataset, args.roi_eval_set, args.roi_eval_scheme, f'{args.iou_method}_threshold_{args.iou_threshold}')
+    timestamp = datetime.now().strftime("%d-%m-%Y_%Hh%Mmin%Ss")
+    roi_dir = os.path.join(directory, 'results', timestamp)
     os.makedirs(roi_dir, exist_ok=True)
-    print("\nroi_dir")
-    print(roi_dir)
 
     ############################ Data Setup ############################
     args.data_dir = Path(args.data_dir)
-    
     args.df = pd.read_csv(args.csv_file)
     args.df = args.df.fillna(0)
     
@@ -1025,11 +1136,11 @@ def run_roi_eval(directory, args, device):
     model.to(device)
 
     # Load checkpoint and set model to eval mode
-    checkpoint = torch.load(os.path.join(directory, 'best_model.pth'), map_location='cpu', weights_only = False)
+    checkpoint = torch.load(os.path.join(directory, 'best_model.pth'), map_location='cpu', weights_only=False)
     model.load_state_dict(checkpoint['model'], strict=False)
     model.eval()
 
-    # DETECTION PERFORMANCE 
+    # Initialize variables to store evaluation results
     if args.mil_type == 'pyramidal_mil': 
         false_positives = {}
         true_positives = {}
@@ -1060,11 +1171,10 @@ def run_roi_eval(directory, args, device):
     reverse_transform = transforms.Compose([
         transforms.Normalize((-args.mean / args.std, -args.mean / args.std, -args.mean / args.std), (1.0 / args.std, 1.0 / args.std, 1.0 / args.std))
     ])
-    
-    # Iterate over the dataloader
-    print(f"Iterating through {str(len(dataloader))} images")
-    for idx, data in enumerate(tqdm(dataloader)):
 
+    print("Iterate through the dataset: ")
+    # Iterate over the dataloader
+    for idx, data in enumerate(tqdm(dataloader)):
         # Send data to device
         if isinstance(data['x'], list): 
             inputs = [tensor.to(device, non_blocking=True) for tensor in data['x']]
@@ -1074,52 +1184,90 @@ def run_roi_eval(directory, args, device):
             inputs = data['x'].to(device, non_blocking=True)
             
         target = data['y'].to(device, non_blocking=True).float()
-        boxes = data['boxes'] 
+        boxes = data['boxes']
 
         if not args.roi_eval_scheme == 'all_roi': 
             boxes = roi_categorization(boxes, args)
-
             if boxes is None: 
                 continue 
 
-        bag_coords = data['coords']
+        bag_coords = data['coords'] # Load this patch coordinates
         bag_info = data['bag_info'][0]
 
         # Load and pad image
         img = Image.open(bag_info['img_dir']).convert('RGB')
         image_rgb, padding = pad_image(transforms.ToTensor()(img), args.patch_size)
         
+        # Segment and pad with SAME padding as image
         seg_mask = Segment(transforms.ToTensor()(img))
         seg_mask = F.pad(seg_mask, padding, mode='constant', value=0)
 
-        # Compute heatmaps and predicted boxes
+        # Compute heatmaps and predicted boxes        
         bag_prob, heatmaps = Compute_Heatmaps_patches(model, inputs, bag_coords, bag_info, total_num_imgs < args.visualize_num_images, seg_mask, device, args)
         
-        num_annotations += boxes.shape[0]
+        # Load gt mask for pixel-level IoU computation
+        img_filename = os.path.basename(bag_info['img_dir'])
+        mask_dir = os.path.join(args.data_dir.parent, 'masks_512')
+        mask_path = os.path.join(mask_dir, img_filename)
+        
+        if os.path.exists(mask_path):
+            # Load mask: invert masks so that 1 indicates ROI
+            gt_mask = np.array(Image.open(mask_path).convert('L'))
+            gt_mask = (gt_mask == 0).astype(np.float32)
+            
+            # Pad gt mask with same padding as image
+            gt_mask_tensor = torch.from_numpy(gt_mask)
+            gt_mask_padded = F.pad(gt_mask_tensor, padding, mode='constant', value=0).numpy()
+            
+            num_annotations += 1  # Count images with masks
+        else:
+            print(f"WARNING: Mask not found for {img_filename} at {mask_path}")
+            gt_mask_padded = None
+            num_annotations += boxes.shape[0]  # Fallback to box count
 
+        # Check structure
         iou_df_new = {
             "img_path": bag_info['img_dir'],
             "boxes": boxes,
         }
 
-        ############################ IoU Evaluation ############################
-        if args.mil_type == 'pyramidal_mil': 
-            
-            for scale, heatmap in heatmaps.items(): 
-                
-                scores[scale], iou_scores, false_positives[scale], true_positives[scale] = evaluate_metrics(boxes, heatmap['pred_bboxes'], scores[scale], false_positives[scale], true_positives[scale], args.iou_threshold, args.iou_method)
-                max_iou = float(np.max(iou_scores)) if len(iou_scores) > 0 else np.nan
-                iou_df_new[f"iou_score_{scale}"] = max_iou
-        
-        else: # single-scale patch-based mil models 
-            scores, iou_scores, false_positives, true_positives = evaluate_metrics(boxes, heatmaps['pred_bboxes'], scores, false_positives, true_positives, args.iou_threshold, args.iou_method)
+        ################## IoU Evaluation (Pixel-level) ##################
+        if gt_mask_padded is not None:
+            if args.mil_type == 'pyramidal_mil': 
+                for scale, heatmap_data in heatmaps.items():                    
+                    # Compute IoU with adaptive thresholding
+                    iou_score = compute_pixelwise_iou(heatmap_data['heatmap'], gt_mask_padded, use_adaptive=True)
+                    iou_df_new[f"iou_score_{scale}"] = iou_score
                     
-            iou_df_new[f"iou_score"] = np.max(iou_scores)
+                    # For box-based mAP, still use bounding boxes if needed
+                    scores[scale], iou_scores_box, false_positives[scale], true_positives[scale] = evaluate_metrics(
+                        boxes, heatmap_data['pred_bboxes'], scores[scale], 
+                        false_positives[scale], true_positives[scale], 
+                        args.iou_threshold, args.iou_method
+                    )
+            
+            else: # single-scale patch-based mil models
+                # Compute IoU with adaptive thresholding
+                iou_score = compute_pixelwise_iou(heatmaps['heatmap'], gt_mask_padded, use_adaptive=True)
+                iou_df_new[f"iou_score"] = iou_score
+                
+                # For box-based mAP, still use bounding boxes if needed
+                scores, iou_scores_box, false_positives, true_positives = evaluate_metrics(
+                    boxes, heatmaps['pred_bboxes'], scores, 
+                    false_positives, true_positives, 
+                    args.iou_threshold, args.iou_method
+                )
+        else:
+            # Fallback if no mask available
+            if args.mil_type == 'pyramidal_mil':
+                for scale in heatmaps.keys():
+                    iou_df_new[f"iou_score_{scale}"] = 0.0
+            else:
+                iou_df_new[f"iou_score"] = 0.0
 
         
         # Add the entry to the DataFrame
         iou_df = pd.concat([iou_df, pd.DataFrame([iou_df_new])], ignore_index=True)
-
         
         ############################ Visualization ############################
         if total_num_imgs < args.visualize_num_images: 
@@ -1175,7 +1323,7 @@ def run_roi_eval(directory, args, device):
                 axs[0].axis('off')
                 
                 ShowVis(heatmaps['heatmap'], image_rgb.permute(1,2,0), heatmaps['pred_bboxes'], axs[1], args)  
-                axs[1].set_title(f"Heatmap (IoU: {np.max(iou_scores)*100:.4f})", fontsize=16)
+                axs[1].set_title(f"Heatmap (IoU: {iou_df_new['iou_score']*100:.4f})", fontsize=16)
                 axs[1].axis('off')
     
                 # Add colorbar
@@ -1253,16 +1401,31 @@ def run_roi_eval(directory, args, device):
         
         # Collect results for this scale
         results.append(average_precision_area)
-
-    print("\nRESULTS")
+        
     # Convert the results list to a DataFrame
     results_df = pd.DataFrame(results)
-    print(results_df.head)
     
     results_df.to_csv(os.path.join(roi_dir, 'roi_eval_results.csv'), index = False)
-    print("RESULTS SAVED TO CSV AT: ", roi_dir)
 
     del indices, false_positives, true_positives, recall, precision, average_precision_area, average_precision_11points; clear_memory()
+
+    # Print IoU statistics
+    print("\n" + "="*50)
+    print("IoU Statistics:")
+    print("="*50)
+
+    if args.mil_type == 'pyramidal_mil':
+        iou_columns = [col for col in iou_df.columns if col.startswith('iou_score_')]
+        iou_stats = iou_df[iou_columns].describe()
+        print(iou_stats)
+        print(f"\nMean IoU per scale:")
+        for col in iou_columns:
+            print(f"  {col}: {iou_df[col].mean():.4f} ± {iou_df[col].std():.4f}")
+    else:
+        print(f"Mean IoU: {iou_df['iou_score'].mean():.4f} ± {iou_df['iou_score'].std():.4f}")
+        print(iou_df['iou_score'].describe())
+
+    print("="*50 + "\n")
 
     ############################ Optional Visualizations ############################
     if args.visualize_num_images: 
@@ -1347,10 +1510,8 @@ def ROI_Eval(args, device):
         # Append mean and std to the original DataFrame
         combined_df = pd.concat([combined_df, mean_std]).reset_index(drop=True)
 
-        print(combined_df)
-
         # Save the summarized evaluation results to CSV
-        output_path = os.path.join(args.output_path, f'{args.roi_eval_set}_{args.roi_eval_scheme}_eval_summary.csv')
+        output_path = os.path.join(args.resume, f'{args.roi_eval_set}_{args.roi_eval_scheme}_eval_summary.csv')
         combined_df.to_csv(output_path, index=False)
 
     

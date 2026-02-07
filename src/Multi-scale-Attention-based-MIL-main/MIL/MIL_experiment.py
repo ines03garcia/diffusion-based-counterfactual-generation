@@ -46,10 +46,11 @@ def do_experiments(args, device):
     print(f"df shape: {args.df.shape}")
     print(args.df.columns)
 
-    # Split data into dev (train+val) and test sets
-    dev_df = args.df[args.df['split'] == "training"].reset_index(drop=True)
+    # Split data into train, val and test sets
+    train_df = args.df[args.df['split'] == "training"].reset_index(drop=True)
+    val_df = args.df[args.df['split'] == "validation"].reset_index(drop=True)
     test_df = args.df[args.df['split'] == "test"].reset_index(drop=True)
-    print("Data split done")
+    print(f"train: {len(train_df)} | val: {len(val_df)} | test: {len(test_df)}")
 
     # reduce dataset size for debugging/experiments if desired
     if args.data_frac < 1.0:
@@ -58,9 +59,6 @@ def do_experiments(args, device):
 
     # repeated k runs using fixed data splits 
     if args.eval_scheme == 'kruns_train+val+test': 
-
-        # split development set into training and validation sets
-        train_df, val_df = stratified_train_val_split(dev_df, 0.2, args = args)
 
         # initialize results dictionary based on model type
         if args.multi_scale_model is not None: 
@@ -394,7 +392,7 @@ def k_experiment(train_df, val_df, output_path, args, device):
     training_stage_manager = Training_Stage_Config(model=model, training_mode=args.training_mode, warmup_epochs=args.warmup_stage_epochs) if args.feature_extraction == 'online' else None 
 
     model = model.to(device)
-    print_network(model)
+    #print_network(model)
 
     optimizer, scheduler, scaler, train_criterion, eval_criterion = initialize_training_setup(train_loader, model, device, args)
 
@@ -737,11 +735,6 @@ def train_fn(train_loader, model, criterion, optimizer, epoch, args, scheduler, 
         preds = np.concatenate(preds['aggregated'])
         probs = np.concatenate(probs['aggregated'])
 
-        # Debug: Print prediction statistics
-        print(f"\n[DEBUG Train] Predictions distribution: {np.bincount(preds.astype(int).flatten())}")
-        print(f"[DEBUG Train] Targets distribution: {np.bincount(targs.astype(int).flatten())}")
-        print(f"[DEBUG Train] Probs - min: {probs.min():.4f}, max: {probs.max():.4f}, mean: {probs.mean():.4f}, std: {probs.std():.4f}")
-
         aucroc = auroc(targs, probs)
         f1, bacc = evaluate_metrics(targs, preds) 
     
@@ -933,16 +926,19 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
         preds = np.concatenate(preds['aggregated'])
         probs = np.concatenate(probs['aggregated'])
 
-        # Debug: Print prediction statistics
-        print(f"\n[DEBUG {split}] Predictions distribution: {np.bincount(preds.astype(int).flatten())}")
-        print(f"[DEBUG {split}] Targets distribution: {np.bincount(targs.astype(int).flatten())}")
-        print(f"[DEBUG {split}] Probs - min: {probs.min():.4f}, max: {probs.max():.4f}, mean: {probs.mean():.4f}, std: {probs.std():.4f}")
-
         aucroc = auroc(targs, probs)
-        f1, bacc = evaluate_metrics(targs, preds) 
+        metrics = evaluate_metrics(targs, preds, all=True)
+
+        parts = []
+        for k, v in metrics.items():
+            if isinstance(v, (float, int, np.floating, np.integer)):
+                parts.append(f"{k}={float(v):.4f}")
+        print(" | ".join(parts))
+        print(aucroc)
+        
         cf_matrix = confusion_matrix(targs, preds) if split == 'test' else None
             
-        val_stats['aggregated'] = {'auc_roc': aucroc, 'bacc': bacc, 'f1': f1, 'cf_matrix': cf_matrix}
+        val_stats['aggregated'] = {'auc_roc': aucroc, 'bacc': metrics["bacc"], 'f1': metrics["f1"], 'cf_matrix': cf_matrix}
 
     else: # single-scale mil models
 
