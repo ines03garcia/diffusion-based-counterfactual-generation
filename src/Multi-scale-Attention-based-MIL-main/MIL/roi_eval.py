@@ -581,7 +581,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
         heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap_min) / heatmap_range, torch.tensor(0.0))
 
         # Extract bounding boxes from heatmap
-        predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold, debug_scale=None)
+        predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
 
         # dictionary with heatmap and predicted bounding boxes
         heatmaps = {
@@ -781,7 +781,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
                 heatmap = torch.where(torch.tensor(seg_mask, dtype=torch.bool), (heatmap - heatmap_min) / heatmap_range, torch.tensor(0.0))
 
                 # Extract bounding boxes from heatmap
-                predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold, debug_scale=scale if scale != 'aggregated' else None, scale_value=scale if isinstance(scale, int) else None)
+                predicted_bboxes = extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
 
                 # Store heatmap and bounding boxes for each scale
                 if args.type_scale_aggregator in ['concatenation', 'gated-attention']: 
@@ -809,7 +809,7 @@ def Compute_Heatmaps_patches(model: torch.nn.Module,
             aggregated_heatmap = (aggregated_heatmap - aggregated_heatmap.min()) / (aggregated_heatmap.max() - aggregated_heatmap.min())  
 
             # Extract bounding boxes from aggregated heatmap
-            predicted_bboxes = extract_bounding_boxes_from_heatmap(aggregated_heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold, debug_scale='aggregated', scale_value=None)
+            predicted_bboxes = extract_bounding_boxes_from_heatmap(aggregated_heatmap, quantile_threshold=args.quantile_threshold, max_bboxes=args.max_bboxes, min_area = args.min_area, iou_threshold = args.iou_threshold)
 
             # Add aggregated heatmap and bboxes to heatmaps dictionary
             heatmaps["aggregated"] = {
