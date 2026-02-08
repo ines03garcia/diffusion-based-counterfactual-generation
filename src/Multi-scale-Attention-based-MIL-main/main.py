@@ -7,7 +7,7 @@ from utils.generic_utils import seed_all
 #external imports 
 import warnings
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import torch
 
 warnings.filterwarnings("ignore")
