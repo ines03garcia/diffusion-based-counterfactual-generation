@@ -396,6 +396,9 @@ def get_cumlative_attention(cam, bbox):
     """
     return cam[bbox[1]:bbox[3], bbox[0]:bbox[2]].sum()
 
+
+
+
     
 def extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=0.98, max_bboxes=3, min_area=230, iou_threshold=0.5): 
     """
@@ -481,8 +484,8 @@ def extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=0.98, max_bb
                     area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
                     area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
 
-                    # Check if intersection equals the area of the smaller box
-                    if intersection >= area1*iou_threshold:
+                    # Check if box1 is mostly contained within box2
+                    if intersection / (area1 + 1e-8) >= iou_threshold:
                         keep = False
                         break
             if keep:
@@ -897,15 +900,12 @@ def Visualize_ROI_Eval(model,
                     if scale == "aggregated": 
                         # Show multi-scale aggregated heatmap with predicted bounding boxes and IoU score
                         attention_vis = ShowVis(data["heatmap"], image_rgb.permute(1,2,0), data["pred_bboxes"], axs[plot_idx][idx+1], args)
-                        axs[plot_idx][idx+1].set_title(f"Aggregated Heatmap (IoU: {iou_score*100:.2f})", fontsize=16)
+                        axs[plot_idx][idx+1].set_title(f"Aggregated (IoU: {iou_score*100:.1f}%)", fontsize=16)
                         axs[plot_idx][idx+1].axis('off')
-                        
                     else: 
                         # Show scale-specific heatmap with predicted bounding boxes and IoU score
                         attention_vis = ShowVis(data["heatmap"], image_rgb.permute(1,2,0), data["pred_bboxes"], axs[plot_idx][idx+1], args)
-                        
-                        plot_text = f"Scale {scale}x - Heatmap (IoU: {iou_score*100:.2f})"
-                        axs[plot_idx][idx+1].set_title(plot_text, fontsize=16)
+                        axs[plot_idx][idx+1].set_title(f"Scale {scale}x (IoU: {iou_score*100:.1f}%)", fontsize=16)
                         axs[plot_idx][idx+1].axis('off')
 
                 # Add colorbar on the last heatmap subplot
@@ -926,7 +926,7 @@ def Visualize_ROI_Eval(model,
 
                 # Plot heatmap with predicted bounding boxes
                 ShowVis(heatmaps['heatmap'], image_rgb.permute(1,2,0), heatmaps['pred_bboxes'], axs[plot_idx][1], args)  
-                axs[plot_idx][1].set_title(f"Heatmap (IoU: {iou_score*100:.2f})", fontsize=16)
+                axs[plot_idx][1].set_title(f"Heatmap (IoU: {iou_score*100:.1f}%)", fontsize=16)
                 axs[plot_idx][1].axis('off')
 
                 # Add colorbar on the last heatmap subplot
@@ -1044,7 +1044,11 @@ def run_roi_eval(directory, args, device):
     num_annotations = 0.0
 
     # DataFrame to store IoU evaluation results per image
-    iou_df = pd.DataFrame(columns=["img_path", "boxes"] + [f"iou_score_{scale}" for scale in args.scales])
+    if args.mil_type == 'pyramidal_mil':
+        iou_cols = [f"iou_score_{scale}" for scale in args.scales] + ["iou_score_aggregated"]
+    else:
+        iou_cols = ["iou_score"]
+    iou_df = pd.DataFrame(columns=["img_path", "boxes"] + iou_cols)
 
     total_num_imgs = 0 
 
@@ -1094,16 +1098,13 @@ def run_roi_eval(directory, args, device):
 
         ############################ IoU Evaluation ############################
         if args.mil_type == 'pyramidal_mil': 
-            for scale, heatmap in heatmaps.items(): 
-                
-                scores[scale], iou_scores, false_positives[scale], true_positives[scale] = evaluate_metrics(boxes, heatmap['pred_bboxes'], scores[scale], false_positives[scale], true_positives[scale], args.iou_threshold, args.iou_method)
-                
+            for scale, heatmap_data in heatmaps.items(): 
+                scores[scale], iou_scores, false_positives[scale], true_positives[scale] = evaluate_metrics(boxes, heatmap_data['pred_bboxes'], scores[scale], false_positives[scale], true_positives[scale], args.iou_threshold, args.iou_method)
                 iou_df_new[f"iou_score_{scale}"] = np.max(iou_scores) if len(iou_scores) > 0 else 0.0
         
         else: # single-scale patch-based mil models 
             scores, iou_scores, false_positives, true_positives = evaluate_metrics(boxes, heatmaps['pred_bboxes'], scores, false_positives, true_positives, args.iou_threshold, args.iou_method)
-                    
-            iou_df_new[f"iou_score"] = np.max(iou_scores)
+            iou_df_new[f"iou_score"] = np.max(iou_scores) if len(iou_scores) > 0 else 0.0
 
         
         # Add the entry to the DataFrame
@@ -1130,20 +1131,15 @@ def run_roi_eval(directory, args, device):
                 axs[0].axis('off')
                 
                 for idx, (scale, data) in enumerate(heatmaps.items()):
-
                     iou_score = iou_df_new[f'iou_score_{scale}']
                     
                     if scale == 'aggregated': 
                         attention_vis = ShowVis(data['heatmap'], image_rgb.permute(1,2,0), data['pred_bboxes'], axs[idx+1], args)
-                        axs[idx+1].set_title(f"Heatmap Map (IoU: {iou_score*100:.2f})", fontsize=16)
+                        axs[idx+1].set_title(f"Aggregated (IoU: {iou_score*100:.1f}%)", fontsize=16)
                         axs[idx+1].axis('off')
-                        
                     else: 
-                        
                         attention_vis = ShowVis(data['heatmap'], image_rgb.permute(1,2,0), data['pred_bboxes'], axs[idx+1], args)
-                        
-                        plot_text = f"Scale {scale}x - Heatmap (IoU: {iou_score*100:.2f})"
-                        axs[idx+1].set_title(plot_text, fontsize=16)
+                        axs[idx+1].set_title(f"Scale {scale}x (IoU: {iou_score*100:.1f}%)", fontsize=16)
                         axs[idx+1].axis('off')
 
                 cbar = fig.colorbar(plt.cm.ScalarMappable(cmap='jet'), 
@@ -1158,13 +1154,14 @@ def run_roi_eval(directory, args, device):
 
                 fig, axs = plt.subplots(1,2, figsize=(10, 5))
 
-                # (1) Plot the input image
+                iou_score = iou_df_new[f'iou_score']
+                
                 plot_image_with_boxes(image_rgb.permute(1,2,0), boxes, ax = axs[0])
                 axs[0].set_title(Get_Predicted_Class(target, bag_prob, label_type = args.label), fontsize=16)
                 axs[0].axis('off')
                 
                 ShowVis(heatmaps['heatmap'], image_rgb.permute(1,2,0), heatmaps['pred_bboxes'], axs[1], args)  
-                axs[1].set_title(f"Heatmap (IoU: {np.max(iou_scores)*100:.4f})", fontsize=16)
+                axs[1].set_title(f"Heatmap (IoU: {iou_score*100:.1f}%)", fontsize=16)
                 axs[1].axis('off')
     
                 # Add colorbar
@@ -1244,11 +1241,29 @@ def run_roi_eval(directory, args, device):
     # Convert the results list to a DataFrame
     results_df = pd.DataFrame(results)
 
+    print("\n" + "="*50)
+    print("DETECTION mAP (Average Precision):")
+    print("="*50)
     print(results_df)
     
     results_df.to_csv(os.path.join(roi_dir, 'roi_eval_results.csv'), index = False)
 
     del indices, false_positives, true_positives, recall, precision, average_precision_area, average_precision_11points; clear_memory()
+
+    ############################ Compute IoU Statistics ############################
+    print("\n" + "="*50)
+    print("IoU STATISTICS (Mean):")
+    print("="*50)
+    
+    iou_cols = [col for col in iou_df.columns if col.startswith('iou_score')]
+    if iou_cols:
+        iou_means = iou_df[iou_cols].mean()
+        for col in iou_means.index:
+            print(f"{col}: {iou_means[col]*100:.2f}%")
+    
+    # Save full IoU dataframe
+    iou_df.to_csv(os.path.join(roi_dir, 'iou_per_image.csv'), index=False)
+    print(f"\nDetailed per-image IoU saved to: {os.path.join(roi_dir, 'iou_per_image.csv')}")
 
     ############################ Optional Visualizations ############################
     if args.visualize_num_images: 
@@ -1263,7 +1278,7 @@ def run_roi_eval(directory, args, device):
                            args=args)
 
         if args.mil_type == 'pyramidal_mil':
-            # Top, worst and comparison cases
+            # Top and worst cases (sort by aggregated IoU)
             best_cases = iou_df.sort_values(by="iou_score_aggregated", ascending=False).head(args.visualize_num_images)
             worst_cases = iou_df.sort_values(by="iou_score_aggregated", ascending=True).head(args.visualize_num_images)
         
