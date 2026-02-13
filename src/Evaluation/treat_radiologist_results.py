@@ -5,6 +5,7 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import ast
 
 import matplotlib.pyplot as plt
 from src.config import METADATA_ROOT, DATA_ROOT
@@ -493,6 +494,84 @@ def plot_boxplot_by_density(df, save_path=None, title="Rating distribution by br
     plt.close(fig)
 
 
+def plot_annotation_area_vs_rating(df, save_path=None, title="Annotation Area vs Mean Rating", figsize=(10, 6), dpi=300):
+    """Create scatter plot showing relationship between annotation area and mean rating."""
+    from scipy import stats
+    
+    # Load radiologist dataset to get annotation coordinates
+    csv_file = METADATA_ROOT / Path("radiologist_dataset.csv")
+    df_radio = pd.read_csv(csv_file)
+    
+    # Calculate annotation area for each image
+    annotation_areas = {}
+    for _, row in df_radio.iterrows():
+        image_id = row['image_id'].replace('.png', '')
+        key = f"{row['radiologist_id']}_{image_id}"
+        
+        # Calculate area from bounding box coordinates
+        xmin_list = ast.literal_eval(row['resized_xmin'])
+        ymin_list = ast.literal_eval(row['resized_ymin'])
+        xmax_list = ast.literal_eval(row['resized_xmax'])
+        ymax_list = ast.literal_eval(row['resized_ymax'])
+
+        area = 0
+        for i in range(len(xmin_list)):
+            xmin = xmin_list[i]
+            ymin = ymin_list[i]
+            xmax = xmax_list[i]
+            ymax = ymax_list[i]
+        
+            area += (xmax - xmin) * (ymax - ymin)
+        
+        annotation_areas[key] = area
+    
+    # Map annotation areas to the dataframe, rescale per 10k pixels²
+    df['annotation_area'] = df['image_id'].map(annotation_areas)
+    df['annotation_area'] = df['annotation_area'] / 10000.0
+    
+    # Remove rows with missing data
+    plot_df = df[['annotation_area', 'mean_rating']].dropna()
+    
+    if len(plot_df) == 0:
+        print("No data available for annotation area vs rating plot")
+        return
+    
+    # Calculate regression line
+    slope, intercept, r_value, p_value, std_err = stats.linregress(plot_df['annotation_area'], plot_df['mean_rating'])
+    
+    # Create scatter plot
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Scatter points
+    ax.scatter(plot_df['annotation_area'], plot_df['mean_rating'], alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
+    
+    # Regression line
+    x_line = np.array([plot_df['annotation_area'].min(), plot_df['annotation_area'].max()])
+    y_line = slope * x_line + intercept
+    ax.plot(x_line, y_line, 'r--', linewidth=2, label=f'y = {slope:.4f}x + {intercept:.2f}\nR² = {r_value**2:.3f}, p = {p_value:.4f}')
+    
+    ax.set_xlabel("Annotation Area (x10⁴ pixels²)", fontsize=12)
+    ax.set_ylabel("Mean Rating per Image", fontsize=12)
+    ax.set_title(title, fontsize=13)
+    ax.grid(alpha=0.3)
+    ax.legend(loc='best', fontsize=10)
+    
+    plt.tight_layout()
+    
+    # Print statistics
+    print(f"\n{title}:")
+    print(f"  Number of images: {len(plot_df)}")
+    print(f"  Correlation coefficient (R): {r_value:.3f}")
+    print(f"  R-squared: {r_value**2:.3f}")
+    print(f"  P-value: {p_value:.4f}")
+    print(f"  Slope: {slope:.6f}")
+    print(f"  Intercept: {intercept:.3f}")
+    
+    if save_path is not None:
+        plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+
+
 
 def main():
     """Main function to orchestrate the radiologist assessment analysis."""
@@ -544,7 +623,7 @@ def main():
     print_summary_statistics(table1_organized, table2_organized, output_path)
 
     plot_boxplot_by_density(table1_organized, save_path=output_path / "boxplot_by_density_table1.png", title="Rating Distribution by Breast Density - Full Image (Table 1)")
-
+    plot_annotation_area_vs_rating(table1_organized, save_path=output_path / "annotation_area_vs_rating_table1.png", title="Annotation Area vs Mean Rating - Full Image (Table 1)")
 
 if __name__ == "__main__":
     main()
