@@ -439,6 +439,61 @@ def print_summary_statistics(table1_organized, table2_organized, output_path):
     print(f"  Number of Images: {len(table2_organized)}")
 
 
+
+def plot_boxplot_by_density(df, save_path=None, title="Rating distribution by breast density", figsize=(10, 6), dpi=300):
+    """Create boxplot showing mean ratings per image grouped by breast density."""
+    densities = ['DENSITY A', 'DENSITY B', 'DENSITY C', 'DENSITY D']
+    colors = ['#6FA8DC', '#93C47D', '#FFE599', '#E06666']  # Blue, Green, Yellow, Red
+    
+    # Collect mean ratings for each density
+    data_by_density = []
+    labels = []
+    stats_info = []
+    
+    for density in densities:
+        density_df = df[df['breast_density'] == density]
+        if len(density_df) > 0:
+            mean_ratings = density_df['mean_rating'].dropna().values
+            if len(mean_ratings) > 0:
+                data_by_density.append(mean_ratings)
+                labels.append(density.replace('DENSITY ', ''))
+                stats_info.append({
+                    'density': density,
+                    'n_images': len(mean_ratings),
+                    'mean': mean_ratings.mean(),
+                    'median': np.median(mean_ratings),
+                    'min': mean_ratings.min(),
+                    'max': mean_ratings.max()
+                })
+    
+    # Print statistics
+    print(f"\n{title}:")
+    for stat in stats_info:
+        print(f"  {stat['density']}: n_images={stat['n_images']}, mean={stat['mean']:.3f}, median={stat['median']:.3f}, range=[{stat['min']:.2f}, {stat['max']:.2f}]")
+    
+    # Create boxplot
+    fig, ax = plt.subplots(figsize=figsize)
+    bp = ax.boxplot(data_by_density, tick_labels=labels, showfliers=True, patch_artist=True)
+    
+    # Color the boxes
+    for patch, color in zip(bp['boxes'], colors[:len(data_by_density)]):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    
+    ax.set_xlabel("Breast Density", fontsize=12)
+    ax.set_ylabel("Mean Rating per Image", fontsize=12)
+    ax.set_title(title, fontsize=13)
+    ax.set_ylim(0.5, 5.5)
+    ax.grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path is not None:
+        plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+
+
+
 def main():
     """Main function to orchestrate the radiologist assessment analysis."""
     # Set up paths
@@ -487,6 +542,8 @@ def main():
 
     # Print summary statistics
     print_summary_statistics(table1_organized, table2_organized, output_path)
+
+    plot_boxplot_by_density(table1_organized, save_path=output_path / "boxplot_by_density_table1.png", title="Rating Distribution by Breast Density - Full Image (Table 1)")
 
 
 if __name__ == "__main__":
