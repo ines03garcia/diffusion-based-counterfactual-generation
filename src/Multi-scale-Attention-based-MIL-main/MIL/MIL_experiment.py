@@ -15,7 +15,7 @@ from tqdm import tqdm
 from Datasets.dataset_utils import MIL_dataloader
 from MIL import build_model 
 
-from utils.metrics import auroc, evaluate_metrics, print_metrics, save_metrics_json
+from utils.metrics import auroc, evaluate_metrics, print_metrics, save_metrics_json, calculate_youden_threshold
 from utils.generic_utils import seed_all, AverageMeter, timeSince, print_network, clear_memory 
 from utils.training_setup_utils import initialize_training_setup, Training_Stage_Config
 from utils.plot_utils import plot_loss_and_acc_curves, plot_lrs_scheduler, plot_confusion_matrix, ROC_curves
@@ -97,17 +97,25 @@ def do_experiments(args, device):
             Path(path_results_run).mkdir(parents=True, exist_ok=True)
 
             # train and validate model
-            val_results, best_checkpoint_path = k_experiment(train_df, val_df, output_path= path_results_run, args = args, device = device)
+            val_results, best_checkpoint_path, optimal_threshold = k_experiment(train_df, val_df, output_path= path_results_run, args = args, device = device)
 
             # load the best model checkpoint
             checkpoint = torch.load(best_checkpoint_path, map_location='cpu', weights_only=False)
             fold_model = build_model(args)
             fold_model.load_state_dict(checkpoint['model'])
             fold_model.to(device)
+            
+            # Load optimal threshold from checkpoint (fallback to calculated value if not in checkpoint)
+            if 'optimal_threshold' in checkpoint:
+                optimal_threshold = checkpoint['optimal_threshold']
+                print(f"\nUsing optimal threshold from checkpoint: {optimal_threshold:.4f}")
+            else:
+                print(f"\nUsing calculated optimal threshold: {optimal_threshold:.4f}")
 
-            # evaluate model on test set
+            # evaluate model on test set using optimal threshold
             test_targs, test_preds, test_probs, test_results = valid_fn(
-                test_loader, fold_model, criterion = torch.nn.BCEWithLogitsLoss(reduction='mean'), args = args, device = device, split = 'test')
+                test_loader, fold_model, criterion = torch.nn.BCEWithLogitsLoss(reduction='mean'), 
+                args = args, device = device, split = 'test', threshold = optimal_threshold)
 
             # free GPU memory
             del fold_model; clear_memory()
@@ -257,7 +265,7 @@ def do_experiments(args, device):
             train_df, val_df = next(train_val_splits)
 
             # Train and evaluate on val set
-            val_results, best_checkpoint_path = k_experiment(train_df, val_df, path_results_fold, args, device)
+            val_results, best_checkpoint_path, optimal_threshold = k_experiment(train_df, val_df, path_results_fold, args, device)
 
             # Log validation results
             print(f"\nVal Loss: {val_results['loss']:.4f}")        
@@ -283,10 +291,18 @@ def do_experiments(args, device):
             fold_model = build_model(args)
             fold_model.load_state_dict(checkpoint['model'])
             fold_model.to(device)
+            
+            # Load optimal threshold from checkpoint (fallback to calculated value if not in checkpoint)
+            if 'optimal_threshold' in checkpoint:
+                optimal_threshold = checkpoint['optimal_threshold']
+                print(f"\nUsing optimal threshold from checkpoint: {optimal_threshold:.4f}")
+            else:
+                print(f"\nUsing calculated optimal threshold: {optimal_threshold:.4f}")
 
-            # Evaluate on test set
+            # Evaluate on test set using optimal threshold
             test_targs, test_preds, test_probs, test_results = valid_fn(
-                test_loader, fold_model, criterion = torch.nn.BCEWithLogitsLoss(reduction='mean'), args = args, device = device, split = 'test')
+                test_loader, fold_model, criterion = torch.nn.BCEWithLogitsLoss(reduction='mean'), 
+                args = args, device = device, split = 'test', threshold = optimal_threshold)
 
             del fold_model; clear_memory()
 
@@ -372,6 +388,7 @@ def k_experiment(train_df, val_df, output_path, args, device):
         Tuple:
             - best_val_stats (dict): Best evaluation metrics on validation set.
             - best_model_path (str): Path to the best model checkpoint.
+            - best_threshold (float): Optimal classification threshold from Youden's J statistic.
     """
         
     if args.running_interactive:
@@ -396,15 +413,16 @@ def k_experiment(train_df, val_df, output_path, args, device):
 
     optimizer, scheduler, scaler, train_criterion, eval_criterion = initialize_training_setup(train_loader, model, device, args)
 
-    best_val_stats, best_model = train_loop(train_loader, valid_loader, model, training_stage_manager, train_criterion, eval_criterion, optimizer, scheduler, scaler, output_path, args, device)
+    best_val_stats, best_model, best_threshold = train_loop(train_loader, valid_loader, model, training_stage_manager, train_criterion, eval_criterion, optimizer, scheduler, scaler, output_path, args, device)
     
-    return best_val_stats, best_model
+    return best_val_stats, best_model, best_threshold
     
 
 def train_loop(train_loader, valid_loader, model, training_stage_manager, train_criterion, eval_criterion, optimizer, scheduler, scaler, output_path, args, device):
 
     best_aucroc = 0.
     best_epoch = 0 
+    best_threshold = 0.5  # Initialize with default threshold
 
     # Dictionaries to keep track of training and validation metrics per epoch
     train_results = {'loss': [], 'f1': [], 'bacc': [], 'auc_roc':[], 'lr':[]}
@@ -422,8 +440,8 @@ def train_loop(train_loader, valid_loader, model, training_stage_manager, train_
         # training for one epoch
         train_stats = train_fn(train_loader, model, train_criterion, optimizer, epoch, args, scheduler, scaler, device)
 
-        # validation after the epoch
-        val_stats = valid_fn(valid_loader, model, eval_criterion, args, device, split = 'val', epoch = epoch)
+        # validation after the epoch - now returns targets and probabilities for threshold calculation
+        val_stats, val_targets, val_probs = valid_fn(valid_loader, model, eval_criterion, args, device, split = 'val', epoch = epoch)
     
         elapsed = time.time() - start_time
 
@@ -463,6 +481,10 @@ def train_loop(train_loader, valid_loader, model, training_stage_manager, train_
                 best_val_stats = val_stats 
     
                 best_epoch = epoch + 1
+                
+                # Calculate Youden optimal threshold on validation set
+                best_threshold, youden_j = calculate_youden_threshold(val_targets, val_probs)
+                print(f'\nYouden optimal threshold: {best_threshold:.4f} (Youden J: {youden_j:.4f})')
                               
                 model_name = 'best_model.pth'
                 best_checkpoint_path = output_path / model_name
@@ -477,6 +499,8 @@ def train_loop(train_loader, valid_loader, model, training_stage_manager, train_
                         'auroc': val_stats['aggregated']['auc_roc'],
                         'f1': val_stats['aggregated']['f1'], 
                         'bacc': val_stats['aggregated']['bacc'],
+                        'optimal_threshold': best_threshold,  # Save optimal threshold
+                        'youden_j': youden_j,
                         'dir_path': output_path
                     }, best_checkpoint_path
                 )
@@ -506,6 +530,10 @@ def train_loop(train_loader, valid_loader, model, training_stage_manager, train_
                 best_val_stats = val_stats 
     
                 best_epoch = epoch + 1
+                
+                # Calculate Youden optimal threshold on validation set
+                best_threshold, youden_j = calculate_youden_threshold(val_targets, val_probs)
+                print(f'\nYouden optimal threshold: {best_threshold:.4f} (Youden J: {youden_j:.4f})')
                               
                 model_name = 'best_model.pth'
                 best_checkpoint_path = output_path / model_name
@@ -520,6 +548,8 @@ def train_loop(train_loader, valid_loader, model, training_stage_manager, train_
                         'auroc': val_stats['auc_roc'],
                         'f1': val_stats['f1'], 
                         'bacc': val_stats['bacc'],
+                        'optimal_threshold': best_threshold,  # Save optimal threshold
+                        'youden_j': youden_j,
                         'dir_path': output_path
                     }, best_checkpoint_path
                 )
@@ -534,7 +564,7 @@ def train_loop(train_loader, valid_loader, model, training_stage_manager, train_
     torch.cuda.empty_cache()
     gc.collect()
     
-    return best_val_stats, best_checkpoint_path
+    return best_val_stats, best_checkpoint_path, best_threshold
 
 def train_fn(train_loader, model, criterion, optimizer, epoch, args, scheduler, scaler, device):
     """
@@ -752,7 +782,13 @@ def train_fn(train_loader, model, criterion, optimizer, epoch, args, scheduler, 
     return train_stats 
 
 @torch.no_grad()
-def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=1):
+def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=1, threshold=0.5):
+    """
+    Validation/testing function with optional custom threshold.
+    
+    Args:
+        threshold: Classification threshold for converting probabilities to predictions (default: 0.5)
+    """
     model.eval() # Set model to evaluation mode
     model.is_training = False 
     
@@ -850,7 +886,7 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
                     y_probs = side_logits[idx].sigmoid().detach()
                     y_probs = y_probs.nan_to_num()
                     
-                    y_preds = (y_probs > 0.5).float()
+                    y_preds = (y_probs > threshold).float()
                     
                     probs[s].append(y_probs.cpu().numpy())
                     preds[s].append(y_preds.cpu().numpy())
@@ -860,7 +896,7 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
                 y_probs = logits.sigmoid().detach()
                 y_probs = y_probs.nan_to_num()
                 
-                y_preds = (y_probs > 0.5).float()
+                y_preds = (y_probs > threshold).float()
     
                 probs['aggregated'].append(y_probs.cpu().numpy())
                 preds['aggregated'].append(y_preds.cpu().numpy())
@@ -879,7 +915,7 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
                     if args.type_scale_aggregator == 'max_p': 
                         y_probs_aggregated = torch.maximum(y_probs_aggregated, y_probs)
                         
-                y_preds_aggregated = (y_probs_aggregated > 0.5).float()
+                y_preds_aggregated = (y_probs_aggregated > threshold).float()
                     
                 probs['aggregated'].append(y_probs_aggregated.cpu().numpy())
                 preds['aggregated'].append(y_preds_aggregated.cpu().numpy()) 
@@ -887,7 +923,7 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
         else: # store predictions and probabilities for single-scale mil models 
 
             y_probs = logits.sigmoid().detach()
-            y_preds = (y_probs > 0.5).float()
+            y_preds = (y_probs > threshold).float()
     
             probs.append(y_probs.cpu().numpy())
             preds.append(y_preds.cpu().numpy())
@@ -949,4 +985,8 @@ def valid_fn(valid_loader, model, criterion, args, device, split = 'val', epoch=
     if split == 'test': 
         return targs, preds, probs, val_stats
 
-    return val_stats 
+    # Return targets and probabilities for threshold calculation during validation
+    if args.mil_type == 'pyramidal_mil':
+        return val_stats, targs, probs  # probs is already the aggregated probabilities
+    else:
+        return val_stats, targs, probs 

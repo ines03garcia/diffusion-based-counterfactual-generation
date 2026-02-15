@@ -1,7 +1,7 @@
 import os
 import json
 import numpy as np
-from sklearn.metrics import auc, precision_recall_curve, accuracy_score, roc_auc_score, average_precision_score, balanced_accuracy_score, precision_recall_fscore_support, confusion_matrix
+from sklearn.metrics import auc, precision_recall_curve, accuracy_score, roc_auc_score, average_precision_score, balanced_accuracy_score, precision_recall_fscore_support, confusion_matrix, roc_curve
 
 
 def evaluate_metrics(labels, predictions, all = False):
@@ -140,6 +140,36 @@ def pfbeta(gt, pred, beta):
 
 def auroc(gt, pred):
     return roc_auc_score(gt, pred)
+
+
+def calculate_youden_threshold(y_true, y_probs):
+    """
+    Calculate the optimal threshold using Youden's J statistic.
+    
+    Youden's J statistic = Sensitivity + Specificity - 1
+    The threshold that maximizes this statistic is selected.
+    
+    Args:
+        y_true: Ground truth binary labels (numpy array)
+        y_probs: Predicted probabilities (numpy array)
+    
+    Returns:
+        optimal_threshold: Threshold value that maximizes Youden's J statistic
+        youden_j: The maximum Youden's J statistic value
+    """
+    # Calculate ROC curve
+    fpr, tpr, thresholds = roc_curve(y_true, y_probs)
+    
+    # Calculate Youden's J statistic for each threshold
+    # J = Sensitivity + Specificity - 1 = TPR + (1 - FPR) - 1 = TPR - FPR
+    youden_j = tpr - fpr
+    
+    # Find the optimal threshold
+    optimal_idx = np.argmax(youden_j)
+    optimal_threshold = thresholds[optimal_idx]
+    max_youden_j = youden_j[optimal_idx]
+    
+    return optimal_threshold, max_youden_j
 
 
 def pfbeta_binarized(gt, pred):

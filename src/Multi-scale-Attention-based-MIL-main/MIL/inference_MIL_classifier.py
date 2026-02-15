@@ -57,11 +57,21 @@ def run_eval(run_path, args, device):
     checkpoint = torch.load(os.path.join(run_path, 'best_model.pth'), map_location='cpu', weights_only=False)
     model.load_state_dict(checkpoint['model'], strict=False)
     
+    # Get optimal threshold from checkpoint (use default 0.5 if not available)
+    optimal_threshold = checkpoint.get('optimal_threshold', 0.5)
+    if 'optimal_threshold' in checkpoint:
+        print(f"\nUsing optimal Youden threshold from checkpoint: {optimal_threshold:.4f}")
+        if 'youden_j' in checkpoint:
+            print(f"Youden's J statistic: {checkpoint['youden_j']:.4f}")
+    else:
+        print(f"\nOptimal threshold not found in checkpoint, using default: {optimal_threshold:.4f}")
+    
     # Set the model to evaluation mode
     model.eval()
 
     test_targs, test_preds, test_probs, test_results = valid_fn(
-        test_loader, model, criterion = torch.nn.BCEWithLogitsLoss(reduction='mean'), args = args, device = device, split = 'test'
+        test_loader, model, criterion = torch.nn.BCEWithLogitsLoss(reduction='mean'), 
+        args = args, device = device, split = 'test', threshold = optimal_threshold
     )
     
     final_results_data = {}
