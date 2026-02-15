@@ -7,5 +7,5 @@ __pycache__/
 .ipynb_checkpoints
 train_script.sh
 eval_script.sh
-gradcam_script.sh
+iou_script.sh
 Mammo-CLIP-output/
