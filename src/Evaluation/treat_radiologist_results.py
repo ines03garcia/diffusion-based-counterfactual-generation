@@ -522,8 +522,9 @@ def plot_annotation_area_vs_rating(df, save_path=None, title="Annotation Area vs
             ymax = ymax_list[i]
         
             area += (xmax - xmin) * (ymax - ymin)
-        
-        annotation_areas[key] = area
+
+        if area <= 45000:
+            annotation_areas[key] = area
     
     # Map annotation areas to the dataframe, rescale per 10k pixels²
     df['annotation_area'] = df['image_id'].map(annotation_areas)
