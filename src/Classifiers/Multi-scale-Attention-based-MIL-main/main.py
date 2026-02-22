@@ -135,7 +135,7 @@ def config():
     # ROI evaluation parameters
     parser.add_argument('--roi_eval', action='store_true', default=False, help='Evaluate post-hoc detection performance')
     parser.add_argument('--roi_attention_threshold', type=float, default=0.5)
-    parser.add_argument('--visualize_num_images', default=0, type=int, help="")
+    parser.add_argument('--visualize_num_images', default=0, type=int)
     parser.add_argument('--quantile_threshold', default = 0.95, type = float) 
     parser.add_argument('--max_bboxes', default = 100, type = int)
     parser.add_argument('--min_area', default = 1024, type = int)

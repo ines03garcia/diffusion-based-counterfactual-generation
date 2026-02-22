@@ -8,4 +8,6 @@ __pycache__/
 train_script.sh
 eval_script.sh
 iou_script.sh
+save_predictions.sh
+save_predictions.py
 Mammo-CLIP-output/
