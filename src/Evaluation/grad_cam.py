@@ -18,6 +18,15 @@ from src.config import DATASET_DIR, MASKS_DIR, IMAGES_ROOT, METADATA_ROOT, DATA_
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 from src.Classifiers.aux_scripts.utils import create_transforms
 
+# Custom target for positive class (class 1)
+class PositiveLogitTarget:
+    def __call__(self, model_output):
+        if model_output.dim() == 1:
+            return model_output[0]
+        elif model_output.dim() == 2:
+            return model_output[:, 0]
+        raise ValueError(f"Unexpected model_output shape: {model_output.shape}")
+        
 # Custom target for negative class (class 0)
 class NegativeLogitTarget:
     def __call__(self, model_output):
@@ -67,6 +76,14 @@ anomalous_with_findings_test_dataset = VinDrMammo_dataset(
     counterfactuals_dir = os.path.join(IMAGES_ROOT, "repaint_results")
 )
 
+def reshape_transform(tensor, height=14, width=14):
+    # tensor: [B, 1+N, D]  (CLS + patch tokens)
+    # drop CLS token:
+    result = tensor[:, 1:, :].reshape(tensor.size(0), height, width, tensor.size(2))
+    # -> [B, H, W, D] then to [B, D, H, W]
+    result = result.transpose(2, 3).transpose(1, 2)
+    return result
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 for model_type in ['ConvNeXt', 'ViT']:
@@ -80,7 +97,7 @@ for model_type in ['ConvNeXt', 'ViT']:
             target_layers = [model.convnext.features[-1][-1]]
 
         elif model_type.lower() == 'vit':
-            target_layers = [model.vit.conv_proj] # Not working
+            target_layers = [model.vit.encoder.layers.encoder_layer_11.ln_1]
         
         # IoU accumulators for healthy and non-healthy predictions
         healthy_ious = []
@@ -100,24 +117,25 @@ for model_type in ['ConvNeXt', 'ViT']:
                 "target_layers": target_layers
             }
 
+            if model_type.lower() == 'vit':
+                gradcam_args["reshape_transform"] = reshape_transform
+
             # Get model prediction for this image
-            out = model(input_tensor)
-            pred = out.item() if hasattr(out, 'item') else out.detach().cpu().numpy().squeeze()
-            prob = torch.sigmoid(torch.tensor(pred)).item()
+            out = model(input_tensor)           # [B,1]
+            logit = out[:, 0] if out.dim() == 2 else out
+            prob = torch.sigmoid(logit).item()
             pred_class = 1 if prob >= 0.5 else 0
 
-            if pred_class == 1:
-                targets = [ClassifierOutputTarget(0)]  # highlight positive evidence
-            else:
-                targets = [NegativeLogitTarget()] 
+            targets = [PositiveLogitTarget()] if pred_class == 1 else [NegativeLogitTarget()]
 
             with GradCAM(**gradcam_args) as cam:
-                grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
-                
-                # Debug
-                arr = np.asarray(grayscale_cam)
-                if np.nanmax(arr) == 0 or np.isnan(arr).any() or np.isinf(arr).any():
-                    raise ValueError("Error with GradCam calculation, probably target layer isn't appropriate")
+                grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0]
+                if grayscale_cam.ndim != 2:
+                    raise ValueError(f"Expected 2D CAM, got {grayscale_cam.shape}")
+                if np.isnan(grayscale_cam).any() or np.isinf(grayscale_cam).any():
+                    raise ValueError("CAM contains NaN/Inf.")
+                if grayscale_cam.max() <= 1e-8:
+                    print("Warning: CAM max is ~0. This can happen if gradients are zero.")
 
                 if grayscale_cam.ndim == 3:
                     grayscale_cam = grayscale_cam[0, :] # (224, 224)
