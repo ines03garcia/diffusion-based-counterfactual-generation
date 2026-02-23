@@ -55,15 +55,6 @@ def overlay_cam_on_image(img, cam, alpha=0.4, colormap=cv2.COLORMAP_JET):
     overlay = np.clip(overlay, 0, 1) # Ensure values are in [0, 1]
     return overlay
 
-def reshape_transform(tensor, height=14, width=14):
-    # Standard ViT reshape from official pytorch_grad_cam examples
-    # tensor is [B, N+1, C] where N = height*width patches, +1 for CLS token
-    result = tensor[:, 1:, :].reshape(tensor.size(0),
-                                      height, width, tensor.size(2))
-    # Bring channels to first dimension: [B, C, H, W]
-    result = result.transpose(2, 3).transpose(1, 2)
-    return result
-
 _, val_transform = create_transforms("none") # No augmentation
 
 anomalous_with_findings_test_dataset = VinDrMammo_dataset(
@@ -76,12 +67,9 @@ anomalous_with_findings_test_dataset = VinDrMammo_dataset(
     counterfactuals_dir = os.path.join(IMAGES_ROOT, "repaint_results")
 )
 
-print(f"Loaded test split: {len(anomalous_with_findings_test_dataset)} images")
-
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-for model_type in ['ConvNeXt']:
+for model_type in ['ConvNeXt', 'ViT']:
     for checkpoint_type in ['_no_cf', '_cf']:
         checkpoint_path = os.path.join(MODELS_ROOT, f'{model_type}{checkpoint_type}.pth')
         model = model_load(checkpoint_path, model_type, device)
@@ -92,9 +80,7 @@ for model_type in ['ConvNeXt']:
             target_layers = [model.convnext.features[-1][-1]]
 
         elif model_type.lower() == 'vit':
-            target_layers = [model.vit.encoder.layers[-1].ln_1]
-
-        print(f"Using model: {model_type} with checkpoint: {checkpoint_type}")
+            target_layers = [model.vit.conv_proj] # Not working
         
         # IoU accumulators for healthy and non-healthy predictions
         healthy_ious = []
@@ -108,14 +94,11 @@ for model_type in ['ConvNeXt']:
             rgb_img = np.clip((rgb_img * np.array([0.229, 0.224, 0.225]) + np.array([0.485, 0.456, 0.406])), 0, 1)
 
             input_tensor = img.unsqueeze(0).to(device)
-            print(f"Processing image: {img_name} with label: {label}")
 
             gradcam_args = {
                 "model": model,
                 "target_layers": target_layers
             }
-            if model_type.lower() == 'vit':
-                gradcam_args["reshape_transform"] = reshape_transform
 
             # Get model prediction for this image
             out = model(input_tensor)
@@ -137,7 +120,6 @@ for model_type in ['ConvNeXt']:
                     raise ValueError("Error with GradCam calculation, probably target layer isn't appropriate")
 
                 if grayscale_cam.ndim == 3:
-                    print("CAM output shape (batch_size, H, W):", grayscale_cam.shape)
                     grayscale_cam = grayscale_cam[0, :] # (224, 224)
 
                 mask_path = os.path.join(MASKS_DIR, img_name)
@@ -148,7 +130,6 @@ for model_type in ['ConvNeXt']:
                     mask = (mask == 0).astype(np.float32)  # Black pixels (0) = ROI
 
                     if mask.shape != grayscale_cam.shape: # Resize masks from 512 to 224
-                        print(f"Resizing mask from {mask.shape} to {grayscale_cam.shape}")
                         # Resize using PIL
                         mask_pil = Image.fromarray((mask * 255).astype(np.uint8))
                         mask_pil = mask_pil.resize((grayscale_cam.shape[1], grayscale_cam.shape[0]), Image.NEAREST)
@@ -177,19 +158,18 @@ for model_type in ['ConvNeXt']:
                         healthy_ious.append(iou)
                     else:
                         nonhealthy_ious.append(iou)
-
-                    print(pred_class)
-
-                    visualization = overlay_cam_on_image(rgb_img, grayscale_cam)
-                    gradcam_images_dir = os.path.join(IMAGES_ROOT, "gradcam2")
-                    os.makedirs(gradcam_images_dir, exist_ok=True)
-                    output_dir = f'{gradcam_images_dir}/{model_type}{checkpoint_type}'
-                    os.makedirs(output_dir, exist_ok=True)
-                    # Save using PIL for consistency
-                    vis_img = (np.clip(visualization, 0, 1) * 255).astype(np.uint8)
-                    Image.fromarray(vis_img).save(f'{output_dir}/{img_name}')
                 else:
                     raise FileNotFoundError(f"Mask file not found: {mask_path}")
+
+                # Save visualization regardless of mask existence
+                visualization = overlay_cam_on_image(rgb_img, grayscale_cam)
+                gradcam_images_dir = os.path.join(IMAGES_ROOT, "gradcam2")
+                os.makedirs(gradcam_images_dir, exist_ok=True)
+                output_dir = f'{gradcam_images_dir}/{model_type}{checkpoint_type}'
+                os.makedirs(output_dir, exist_ok=True)
+                # Save using PIL for consistency
+                vis_img = (np.clip(visualization, 0, 1) * 255).astype(np.uint8)
+                Image.fromarray(vis_img).save(f'{output_dir}/{img_name}')
                 
         # Calculate and log global IoU and prediction counts
         avg_healthy = np.mean(healthy_ious) if healthy_ious else float('nan')
@@ -198,9 +178,11 @@ for model_type in ['ConvNeXt']:
         global_iou = np.mean(all_ious) if all_ious else float('nan')
         n_healthy = len(healthy_ious)
         n_nonhealthy = len(nonhealthy_ious)
+        
         log_dir = os.path.join(DATA_ROOT, 'logs/gradcam_logs')
         os.makedirs(log_dir, exist_ok=True)
         log_path = os.path.join(log_dir, f'{model_type}{checkpoint_type}_iou.txt')
+        
         with open(log_path, 'w') as f:
             f.write(f'Model: {model_type}\n')
             f.write(f'Checkpoint: {checkpoint_type}\n')
