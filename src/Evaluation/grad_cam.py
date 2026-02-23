@@ -21,7 +21,12 @@ from src.Classifiers.aux_scripts.utils import create_transforms
 # Custom target for negative class (class 0)
 class NegativeLogitTarget:
     def __call__(self, model_output):
-        return -model_output
+        # Handle both squeezed [batch] and unsqueezed [batch, 1] formats
+        if model_output.dim() == 1:
+            return -model_output[0]
+        elif model_output.dim() == 2:
+            return -model_output[:, 0]
+        raise ValueError(f"Unexpected model_output shape: {model_output.shape}")
 
 def model_load(checkpoint_path, model_type, device):
     if model_type.lower() == "vit":
@@ -50,14 +55,6 @@ def overlay_cam_on_image(img, cam, alpha=0.4, colormap=cv2.COLORMAP_JET):
     overlay = np.clip(overlay, 0, 1) # Ensure values are in [0, 1]
     return overlay
 
-def reshape_transform(x):
-    # x is [B, N, C] for torchvision ViT
-    x = x[:, 1:, :]                 # drop CLS -> [B, 196, C]
-    B, N, C = x.shape
-    H = W = int(math.sqrt(N))       # 14 for 224x224 with patch16
-    assert H * W == N
-    return x.reshape(B, H, W, C).permute(0, 3, 1, 2)  # [B, C, H, W]
-
 _, val_transform = create_transforms("none") # No augmentation
 
 anomalous_with_findings_test_dataset = VinDrMammo_dataset(
@@ -82,14 +79,15 @@ for model_type in ['ConvNeXt', 'ViT']:
 
         # Select the target layer for GradCAM using correct attribute names
         if model_type.lower() == 'convnext':
-            last_cnblock = model.convnext.features[-1][-1]
-            target_layers = [last_cnblock.block[0]]
+            # CNBlock (before pooling/classifier)
+            target_layers = [model.convnext.features[-1][-1]]
 
         elif model_type.lower() == 'vit':
-            target_layers = [model.vit.encoder.layers[-1].ln_1]
+            # Use the conv layer
+            target_layers = [model.vit.conv_proj]
 
         print(f"Using model: {model_type} with checkpoint: {checkpoint_type}")
-
+        
         # IoU accumulators for healthy and non-healthy predictions
         healthy_ious = []
         nonhealthy_ious = []
@@ -104,13 +102,10 @@ for model_type in ['ConvNeXt', 'ViT']:
             input_tensor = img.unsqueeze(0).to(device)
             print(f"Processing image: {img_name} with label: {label}")
 
-
             gradcam_args = {
                 "model": model,
                 "target_layers": target_layers
             }
-            if model_type.lower() == 'vit':
-                gradcam_args["reshape_transform"] = reshape_transform
 
             # Get model prediction for this image
             out = model(input_tensor)
@@ -118,19 +113,22 @@ for model_type in ['ConvNeXt', 'ViT']:
             prob = torch.sigmoid(torch.tensor(pred)).item()
             pred_class = 1 if prob >= 0.5 else 0
 
-            # Set GradCAM target to match predicted class
-            if pred_class == 1:
-                targets = [ClassifierOutputTarget(0)]  # highlight positive evidence
-            else:
-                targets = [NegativeLogitTarget()]      # highlight negative evidence
+            #if pred_class == 1:
+            targets = [ClassifierOutputTarget(0)]  # highlight positive evidence
+            #else:
+                #targets = [NegativeLogitTarget()] 
 
             with GradCAM(**gradcam_args) as cam:
                 grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
-                print("GradCAM computed.")
+                
+                # Debug
+                arr = np.asarray(grayscale_cam)
+                if np.nanmax(arr) == 0 or np.isnan(arr).any() or np.isinf(arr).any():
+                    raise ValueError("Error with GradCam calculation, probably target layer isn't appropriate")
 
                 if grayscale_cam.ndim == 3:
                     print("CAM output shape (batch_size, H, W):", grayscale_cam.shape)
-                    grayscale_cam = grayscale_cam[0, :]
+                    grayscale_cam = grayscale_cam[0, :] # (224, 224)
 
                 mask_path = os.path.join(MASKS_DIR, img_name)
 
@@ -139,24 +137,38 @@ for model_type in ['ConvNeXt', 'ViT']:
                     mask = np.array(Image.open(mask_path).convert('L'))
                     mask = (mask == 0).astype(np.float32)  # Black pixels (0) = ROI
 
-                    if mask.shape != grayscale_cam.shape:
+                    if mask.shape != grayscale_cam.shape: # Resize masks from 512 to 224
                         print(f"Resizing mask from {mask.shape} to {grayscale_cam.shape}")
                         # Resize using PIL
                         mask_pil = Image.fromarray((mask * 255).astype(np.uint8))
                         mask_pil = mask_pil.resize((grayscale_cam.shape[1], grayscale_cam.shape[0]), Image.NEAREST)
-                        mask = np.array(mask_pil).astype(np.float32) / 255.0
+                        mask = np.array(mask_pil).astype(np.float32) / 255.0 # [0, 1]
 
+                    # Percentile threshold
+                    threshold = np.percentile(grayscale_cam, 75)
+                    
+                    # Binarize CAM based on threshold
+                    cam_binary = (grayscale_cam >= threshold).astype(np.float32)
+                    
+                    # Calculate IoU
+                    intersection = np.sum(cam_binary * mask)
+                    union = np.sum((cam_binary + mask) > 0)
+                    iou = intersection / union if union > 0 else 0.0
+                    
+                    # Additional metrics for debugging
                     cam_in_mask = np.sum(grayscale_cam * mask)
                     mask_area = np.sum(mask)
                     cam_total = np.sum(grayscale_cam)
-                    iou = np.sum((grayscale_cam > 0.5) * mask) / np.sum(((grayscale_cam > 0.5) + mask) > 0)
-                    print(f"Image: {img_name}, CAM in mask: {cam_in_mask:.4f}, Mask area: {mask_area}, CAM total: {cam_total:.4f}, IoU: {iou:.4f}")
+                    cam_max = np.max(grayscale_cam)
+                    cam_mean = np.mean(grayscale_cam)
 
                     # Accumulate IoU based on prediction
                     if pred_class == 0:
                         healthy_ious.append(iou)
                     else:
                         nonhealthy_ious.append(iou)
+
+                    print(pred_class)
 
                     visualization = overlay_cam_on_image(rgb_img, grayscale_cam)
                     gradcam_images_dir = os.path.join(IMAGES_ROOT, "gradcam2")
