@@ -55,6 +55,15 @@ def overlay_cam_on_image(img, cam, alpha=0.4, colormap=cv2.COLORMAP_JET):
     overlay = np.clip(overlay, 0, 1) # Ensure values are in [0, 1]
     return overlay
 
+def reshape_transform(tensor, height=14, width=14):
+    # Standard ViT reshape from official pytorch_grad_cam examples
+    # tensor is [B, N+1, C] where N = height*width patches, +1 for CLS token
+    result = tensor[:, 1:, :].reshape(tensor.size(0),
+                                      height, width, tensor.size(2))
+    # Bring channels to first dimension: [B, C, H, W]
+    result = result.transpose(2, 3).transpose(1, 2)
+    return result
+
 _, val_transform = create_transforms("none") # No augmentation
 
 anomalous_with_findings_test_dataset = VinDrMammo_dataset(
@@ -72,7 +81,7 @@ print(f"Loaded test split: {len(anomalous_with_findings_test_dataset)} images")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-for model_type in ['ConvNeXt', 'ViT']:
+for model_type in ['ConvNeXt']:
     for checkpoint_type in ['_no_cf', '_cf']:
         checkpoint_path = os.path.join(MODELS_ROOT, f'{model_type}{checkpoint_type}.pth')
         model = model_load(checkpoint_path, model_type, device)
@@ -83,8 +92,7 @@ for model_type in ['ConvNeXt', 'ViT']:
             target_layers = [model.convnext.features[-1][-1]]
 
         elif model_type.lower() == 'vit':
-            # Use the conv layer
-            target_layers = [model.vit.conv_proj]
+            target_layers = [model.vit.encoder.layers[-1].ln_1]
 
         print(f"Using model: {model_type} with checkpoint: {checkpoint_type}")
         
@@ -106,6 +114,8 @@ for model_type in ['ConvNeXt', 'ViT']:
                 "model": model,
                 "target_layers": target_layers
             }
+            if model_type.lower() == 'vit':
+                gradcam_args["reshape_transform"] = reshape_transform
 
             # Get model prediction for this image
             out = model(input_tensor)
@@ -113,10 +123,10 @@ for model_type in ['ConvNeXt', 'ViT']:
             prob = torch.sigmoid(torch.tensor(pred)).item()
             pred_class = 1 if prob >= 0.5 else 0
 
-            #if pred_class == 1:
-            targets = [ClassifierOutputTarget(0)]  # highlight positive evidence
-            #else:
-                #targets = [NegativeLogitTarget()] 
+            if pred_class == 1:
+                targets = [ClassifierOutputTarget(0)]  # highlight positive evidence
+            else:
+                targets = [NegativeLogitTarget()] 
 
             with GradCAM(**gradcam_args) as cam:
                 grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
