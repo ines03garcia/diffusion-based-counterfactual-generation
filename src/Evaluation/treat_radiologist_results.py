@@ -441,54 +441,102 @@ def print_summary_statistics(table1_organized, table2_organized, output_path):
 
 
 
-def plot_boxplot_by_density(df, save_path=None, title="Rating distribution by breast density", figsize=(10, 6), dpi=300):
+def plot_boxplot_by_density(
+    df,
+    save_path=None,
+    title="Rating distribution by breastjjj density",
+    figsize=(10, 6),
+    dpi=300,
+    font_sizes=None,
+):
     """Create boxplot showing mean ratings per image grouped by breast density."""
-    densities = ['DENSITY A', 'DENSITY B', 'DENSITY C', 'DENSITY D']
-    colors = ['#6FA8DC', '#93C47D', '#FFE599', '#E06666']  # Blue, Green, Yellow, Red
-    
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Default font sizes (override by passing font_sizes dict)
+    fs = {
+        "title": 18,
+        "axis": 16,
+        "ticks": 14,
+        "stats": 12,  # not plotted, just for potential future annotations
+    }
+    if font_sizes:
+        fs.update(font_sizes)
+
+    densities = ["DENSITY A", "DENSITY B", "DENSITY C", "DENSITY D"]
+    colors = ["#6FA8DC", "#93C47D", "#FFE599", "#E06666"]  # Blue, Green, Yellow, Red
+
     # Collect mean ratings for each density
     data_by_density = []
     labels = []
     stats_info = []
-    
+
     for density in densities:
-        density_df = df[df['breast_density'] == density]
+        density_df = df[df["breast_density"] == density]
         if len(density_df) > 0:
-            mean_ratings = density_df['mean_rating'].dropna().values
+            mean_ratings = density_df["mean_rating"].dropna().values
             if len(mean_ratings) > 0:
                 data_by_density.append(mean_ratings)
-                labels.append(density.replace('DENSITY ', ''))
-                stats_info.append({
-                    'density': density,
-                    'n_images': len(mean_ratings),
-                    'mean': mean_ratings.mean(),
-                    'median': np.median(mean_ratings),
-                    'min': mean_ratings.min(),
-                    'max': mean_ratings.max()
-                })
-    
+                labels.append(density.replace("DENSITY ", ""))
+                stats_info.append(
+                    {
+                        "density": density,
+                        "n_images": len(mean_ratings),
+                        "mean": mean_ratings.mean(),
+                        "median": np.median(mean_ratings),
+                        "min": mean_ratings.min(),
+                        "max": mean_ratings.max(),
+                    }
+                )
+
     # Print statistics
     print(f"\n{title}:")
     for stat in stats_info:
-        print(f"  {stat['density']}: n_images={stat['n_images']}, mean={stat['mean']:.3f}, median={stat['median']:.3f}, range=[{stat['min']:.2f}, {stat['max']:.2f}]")
-    
+        print(
+            f"  {stat['density']}: n_images={stat['n_images']}, "
+            f"mean={stat['mean']:.3f}, median={stat['median']:.3f}, "
+            f"range=[{stat['min']:.2f}, {stat['max']:.2f}]"
+        )
+
     # Create boxplot
     fig, ax = plt.subplots(figsize=figsize)
-    bp = ax.boxplot(data_by_density, tick_labels=labels, showfliers=True, patch_artist=True)
-    
-    # Color the boxes
-    for patch, color in zip(bp['boxes'], colors[:len(data_by_density)]):
+
+    positions = np.arange(len(data_by_density)) * 0.8 + 1  
+
+    bp = ax.boxplot(
+        data_by_density,
+        positions=positions,
+        tick_labels=labels,
+        showfliers=True,
+        patch_artist=True,
+        widths=0.35
+    )
+
+    ax.set_xticks(positions)
+
+    # Color the boxes + make lines a bit thicker
+    for patch, color in zip(bp["boxes"], colors[: len(data_by_density)]):
         patch.set_facecolor(color)
         patch.set_alpha(0.7)
-    
-    ax.set_xlabel("Breast Density", fontsize=12)
-    ax.set_ylabel("Mean Rating per Image", fontsize=12)
-    ax.set_title(title, fontsize=13)
+        patch.set_linewidth(1.5)
+
+    for k in ["whiskers", "caps", "medians"]:
+        for artist in bp[k]:
+            artist.set_linewidth(1.5)
+
+    # Bigger text
+    ax.set_xlabel("Breast Density", fontsize=fs["axis"])
+    ax.set_ylabel("Mean Rating per Image", fontsize=fs["axis"])
+    ax.set_title(title, fontsize=fs["title"], pad=12)
+
+    # Bigger tick labels
+    ax.tick_params(axis="both", which="major", labelsize=fs["ticks"])
+
     ax.set_ylim(0.5, 5.5)
-    ax.grid(axis='y', alpha=0.3)
-    
+    ax.grid(axis="y", alpha=0.3)
+
     plt.tight_layout()
-    
+
     if save_path is not None:
         plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
@@ -623,8 +671,8 @@ def main():
     # Print summary statistics
     print_summary_statistics(table1_organized, table2_organized, output_path)
 
-    plot_boxplot_by_density(table1_organized, save_path=output_path / "boxplot_by_density_table1.png", title="Rating Distribution by Breast Density - Full Image (Table 1)")
-    plot_annotation_area_vs_rating(table1_organized, save_path=output_path / "annotation_area_vs_rating_table1.png", title="Annotation Area vs Mean Rating - Full Image (Table 1)")
+    plot_boxplot_by_density(table1_organized, save_path=output_path / "boxplot_by_density_table1.png", title="Rating Distribution by Breast Density")
+    plot_annotation_area_vs_rating(table1_organized, save_path=output_path / "annotation_area_vs_rating_table1.png", title="Annotation Area vs Mean Rating")
 
 if __name__ == "__main__":
     main()
