@@ -437,8 +437,14 @@ def extract_bounding_boxes_from_heatmap(heatmap, quantile_threshold=0.98, max_bb
 
     # generate bounding boxes
     bboxes = []
+    all_slices = ndimage.find_objects(label_im)
     for l in range(1, len(labels)):
-        slice_x, slice_y = ndimage.find_objects(label_im == l)[0]
+        # find_objects returns a list where index i corresponds to label i+1
+        # So for label l, we need index l-1
+        if l-1 >= len(all_slices) or all_slices[l-1] is None:
+            continue
+            
+        slice_x, slice_y = all_slices[l-1]
 
         # Validate bounding box dimensions
         if (slice_x.start < slice_x.stop) & (slice_y.start < slice_y.stop):
@@ -1252,14 +1258,15 @@ def run_roi_eval(directory, args, device):
 
     ############################ Compute IoU Statistics ############################
     print("\n" + "="*50)
-    print("IoU STATISTICS (Mean):")
+    print("IoU STATISTICS (Mean ± Std):")
     print("="*50)
     
     iou_cols = [col for col in iou_df.columns if col.startswith('iou_score')]
     if iou_cols:
         iou_means = iou_df[iou_cols].mean()
+        iou_stds = iou_df[iou_cols].std()
         for col in iou_means.index:
-            print(f"{col}: {iou_means[col]*100:.2f}%")
+            print(f"{col}: {iou_means[col]*100:.2f}% ± {iou_stds[col]*100:.2f}%")
     
     # Save full IoU dataframe
     iou_df.to_csv(os.path.join(roi_dir, 'iou_per_image.csv'), index=False)

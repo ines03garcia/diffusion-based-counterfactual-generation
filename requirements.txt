@@ -27,3 +27,4 @@ nltk
 seaborn
 scikit-image
 pynvml
+omegaconf
