@@ -542,21 +542,42 @@ def plot_boxplot_by_density(
     plt.close(fig)
 
 
-def plot_annotation_area_vs_rating(df, save_path=None, title="Annotation Area vs Mean Rating", figsize=(10, 6), dpi=300):
+def plot_annotation_area_vs_rating(
+    df,
+    save_path=None,
+    title="Annotation Area vs Mean Rating",
+    figsize=(10, 6),
+    dpi=300,
+    font_sizes=None,
+):
     """Create scatter plot showing relationship between annotation area and mean rating."""
     from scipy import stats
-    
-    # Load radiologist dataset to get annotation coordinates
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    import ast
+    from pathlib import Path
+
+    # Default font sizes
+    fs = {
+        "title": 18,
+        "axis": 16,
+        "ticks": 14,
+        "legend": 14,
+    }
+    if font_sizes:
+        fs.update(font_sizes)
+
+    # Load radiologist dataset
     csv_file = METADATA_ROOT / Path("radiologist_dataset.csv")
     df_radio = pd.read_csv(csv_file)
-    
+
     # Calculate annotation area for each image
     annotation_areas = {}
     for _, row in df_radio.iterrows():
         image_id = row['image_id'].replace('.png', '')
         key = f"{row['radiologist_id']}_{image_id}"
-        
-        # Calculate area from bounding box coordinates
+
         xmin_list = ast.literal_eval(row['resized_xmin'])
         ymin_list = ast.literal_eval(row['resized_ymin'])
         xmax_list = ast.literal_eval(row['resized_xmax'])
@@ -564,50 +585,71 @@ def plot_annotation_area_vs_rating(df, save_path=None, title="Annotation Area vs
 
         area = 0
         for i in range(len(xmin_list)):
-            xmin = xmin_list[i]
-            ymin = ymin_list[i]
-            xmax = xmax_list[i]
-            ymax = ymax_list[i]
-        
-            area += (xmax - xmin) * (ymax - ymin)
+            area += (xmax_list[i] - xmin_list[i]) * (ymax_list[i] - ymin_list[i])
 
         if area <= 45000:
             annotation_areas[key] = area
-    
-    # Map annotation areas to the dataframe, rescale per 10k pixels²
+
+    # Map + rescale
     df['annotation_area'] = df['image_id'].map(annotation_areas)
     df['annotation_area'] = df['annotation_area'] / 10000.0
-    
-    # Remove rows with missing data
+
     plot_df = df[['annotation_area', 'mean_rating']].dropna()
-    
+
     if len(plot_df) == 0:
         print("No data available for annotation area vs rating plot")
         return
-    
-    # Calculate regression line
-    slope, intercept, r_value, p_value, std_err = stats.linregress(plot_df['annotation_area'], plot_df['mean_rating'])
-    
-    # Create scatter plot
+
+    # Regression
+    slope, intercept, r_value, p_value, std_err = stats.linregress(
+        plot_df['annotation_area'],
+        plot_df['mean_rating']
+    )
+
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # Scatter points
-    ax.scatter(plot_df['annotation_area'], plot_df['mean_rating'], alpha=0.6, s=50, edgecolors='black', linewidth=0.5)
-    
+
+    # Scatter
+    ax.scatter(
+        plot_df['annotation_area'],
+        plot_df['mean_rating'],
+        alpha=0.6,
+        s=60,
+        edgecolors='black',
+        linewidth=0.7
+    )
+
     # Regression line
-    x_line = np.array([plot_df['annotation_area'].min(), plot_df['annotation_area'].max()])
+    x_line = np.array([
+        plot_df['annotation_area'].min(),
+        plot_df['annotation_area'].max()
+    ])
     y_line = slope * x_line + intercept
-    ax.plot(x_line, y_line, 'r--', linewidth=2, label=f'y = {slope:.4f}x + {intercept:.2f}\nR² = {r_value**2:.3f}, p = {p_value:.4f}')
-    
-    ax.set_xlabel("Annotation Area (x10⁴ pixels²)", fontsize=12)
-    ax.set_ylabel("Mean Rating per Image", fontsize=12)
-    ax.set_title(title, fontsize=13)
+
+    ax.plot(
+        x_line,
+        y_line,
+        'r--',
+        linewidth=2,
+        label=f'y = {slope:.4f}x + {intercept:.2f}\n'
+              f'R² = {r_value**2:.3f}, p = {p_value:.4f}'
+    )
+
+    # Bigger text
+    ax.set_xlabel("Annotation Area (x10⁴ pixels²)", fontsize=fs["axis"])
+    ax.set_ylabel("Mean Rating per Image", fontsize=fs["axis"])
+    ax.set_title(title, fontsize=fs["title"], pad=12)
+
+    # Bigger tick labels
+    ax.tick_params(axis='both', which='major', labelsize=fs["ticks"], width=1.2)
+
+    # Bigger legend
+    ax.legend(loc='best', fontsize=fs["legend"])
+
     ax.grid(alpha=0.3)
-    ax.legend(loc='best', fontsize=10)
-    
+
     plt.tight_layout()
-    
-    # Print statistics
+
+    # Print stats
     print(f"\n{title}:")
     print(f"  Number of images: {len(plot_df)}")
     print(f"  Correlation coefficient (R): {r_value:.3f}")
@@ -615,7 +657,7 @@ def plot_annotation_area_vs_rating(df, save_path=None, title="Annotation Area vs
     print(f"  P-value: {p_value:.4f}")
     print(f"  Slope: {slope:.6f}")
     print(f"  Intercept: {intercept:.3f}")
-    
+
     if save_path is not None:
         plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
