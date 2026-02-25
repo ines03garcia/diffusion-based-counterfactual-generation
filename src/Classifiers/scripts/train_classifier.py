@@ -2,7 +2,8 @@ import argparse
 import json
 import logging
 import os
-
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -16,6 +17,11 @@ from src.Classifiers.aux_scripts.utils import create_transforms, train_epoch, va
 from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
 
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 def create_optimizer(model, args, log):
     """Create optimizer with appropriate learning rates for all model parameters.
@@ -65,6 +71,7 @@ def create_optimizer(model, args, log):
 
 def main():
     args = create_argparser().parse_args()
+    set_seed(args.seed)
     
     # Set experiment name based on model type if not explicitly provided
     if args.experiment_name == 'classifier_training':
@@ -114,6 +121,11 @@ def main():
         counterfactuals_dir=args.counterfactual_dir,
     )
     log.debug(f"{len(val_dataset)} samples loaded from the validation dataset.")
+
+    def seed_worker(worker_id):
+        worker_seed = args.seed + worker_id
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
     
     # Create data loaders
     train_loader = DataLoader(
@@ -121,7 +133,9 @@ def main():
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=True
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=torch.Generator().manual_seed(args.seed)
     )
     log.debug("Training DataLoader created.")
     
@@ -130,7 +144,9 @@ def main():
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        pin_memory=True
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=torch.Generator().manual_seed(args.seed)
     )
     log.debug("Validation DataLoader created.")
     
@@ -313,7 +329,8 @@ def create_argparser():
         training_category=None,  # New: 'healthy', 'anomalous', 'anomalous_with_findings', or None
         counterfactual_dir=None,
         resume_from_checkpoint=None,
-        debugging=False
+        debugging=False,
+        seed=0
     )
     
     parser = argparse.ArgumentParser()
@@ -343,6 +360,7 @@ def create_argparser():
     parser.add_argument('--counterfactual_dir', type=str, default=defaults['counterfactual_dir'])
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--debugging', action='store_true', default=defaults['debugging'])
+    parser.add_argument('--seed', type=int, default=0)
     
     return parser
 
