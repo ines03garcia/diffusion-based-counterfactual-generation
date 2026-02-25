@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import math
 from PIL import Image
+from scipy.stats import ttest_rel, wilcoxon
 
 from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
@@ -86,10 +87,12 @@ def reshape_transform(tensor, height=14, width=14):
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
 for model_type in ['ConvNeXt', 'ViT']:
     for checkpoint_type in ['_no_cf', '_cf']:
         checkpoint_path = os.path.join(MODELS_ROOT, f'{model_type}{checkpoint_type}.pth')
         model = model_load(checkpoint_path, model_type, device)
+        iou_by_img = {}
 
         # Select the target layer for GradCAM using correct attribute names
         if model_type.lower() == 'convnext':
@@ -163,6 +166,7 @@ for model_type in ['ConvNeXt', 'ViT']:
                     intersection = np.sum(cam_binary * mask)
                     union = np.sum((cam_binary + mask) > 0)
                     iou = intersection / union if union > 0 else 0.0
+                    iou_by_img[img_name] = iou
                     
                     # Additional metrics for debugging
                     cam_in_mask = np.sum(grayscale_cam * mask)
@@ -194,6 +198,32 @@ for model_type in ['ConvNeXt', 'ViT']:
         avg_nonhealthy = np.mean(nonhealthy_ious) if nonhealthy_ious else float('nan')
         all_ious = healthy_ious + nonhealthy_ious
         global_iou = np.mean(all_ious) if all_ious else float('nan')
+        if checkpoint_type == "_no_cf":
+            iou_no_cf_by_img = iou_by_img.copy()
+        else:
+            iou_cf_by_img = iou_by_img.copy()
+
+            common = sorted(set(iou_no_cf_by_img) & set(iou_cf_by_img))
+            ious_no_cf = np.array([iou_no_cf_by_img[k] for k in common])
+            ious_cf    = np.array([iou_cf_by_img[k]    for k in common])
+        
+            # sanity checks
+            assert len(ious_cf) == len(ious_no_cf) and len(ious_cf) > 0
+        
+            # Paired tests
+            t_stat, p_t = ttest_rel(ious_cf, ious_no_cf)
+            w_stat, p_w = wilcoxon(ious_cf, ious_no_cf)
+        
+            mean_no = ious_no_cf.mean()
+            std_no  = ious_no_cf.std(ddof=1)
+            mean_cf = ious_cf.mean()
+            std_cf  = ious_cf.std(ddof=1)
+
+            diff = ious_cf - ious_no_cf
+            mean_diff = float(np.mean(diff))
+            std_diff  = float(np.std(diff, ddof=1))
+            
+            
         n_healthy = len(healthy_ious)
         n_nonhealthy = len(nonhealthy_ious)
         
@@ -209,3 +239,16 @@ for model_type in ['ConvNeXt', 'ViT']:
             f.write(f'Global IoU (all predictions): {global_iou:.4f}\n')
             f.write(f'Number of healthy predictions: {n_healthy}\n')
             f.write(f'Number of non-healthy predictions: {n_nonhealthy}\n')
+            if checkpoint_type == "_cf":
+                f.write(f"n paired: {len(common)}\n")
+                f.write(f"Paired t-test p-value: {p_t:.6g}\n")
+                f.write(f"Wilcoxon p-value: {p_w:.6g}\n")
+                f.write(f"Wilcoxon p-value: {p_w:.6g}\n")
+                f.write("\n--- Paired stats (_cf vs _no_cf) ---\n")
+                f.write(f"n paired: {len(common)}\n")
+                f.write(f"Baseline IoU: {mean_no:.4f} ± {std_no:.4f}\n")
+                f.write(f"CF IoU:       {mean_cf:.4f} ± {std_cf:.4f}\n")
+                f.write(f"Δ IoU (CF - Base): {mean_diff:.4f} ± {std_diff:.4f}\n")
+                f.write(f"Paired t-test p-value: {p_t:.6g}\n")
+                f.write(f"Wilcoxon p-value: {p_w:.6g}\n")
+                
