@@ -1104,8 +1104,12 @@ def run_roi_eval(directory, args, device):
 
         ############################ IoU Evaluation ############################
         if args.mil_type == 'pyramidal_mil': 
-            for scale, heatmap_data in heatmaps.items(): 
-                scores[scale], iou_scores, false_positives[scale], true_positives[scale] = evaluate_metrics(boxes, heatmap_data['pred_bboxes'], scores[scale], false_positives[scale], true_positives[scale], args.iou_threshold, args.iou_method)
+            for scale, heatmap_data in heatmaps.items():
+                pred_boxes = heatmap_data['pred_bboxes']
+                pred_boxes = np.array(pred_boxes)
+                pred_boxes = pred_boxes[pred_boxes[:, 4] >= 0.6]
+                
+                scores[scale], iou_scores, false_positives[scale], true_positives[scale] = evaluate_metrics(boxes, pred_boxes, scores[scale], false_positives[scale], true_positives[scale], args.iou_threshold, args.iou_method)
                 iou_df_new[f"iou_score_{scale}"] = np.max(iou_scores) if len(iou_scores) > 0 else 0.0
         
         else: # single-scale patch-based mil models 
