@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import numpy as np
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report, roc_auc_score, balanced_accuracy_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, classification_report, roc_auc_score, balanced_accuracy_score, average_precision_score, log_loss, brier_score_loss
 from tqdm import tqdm
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for headless environments
@@ -63,6 +63,24 @@ def calculate_metrics(predictions, probabilities, targets):
     except ValueError:
         auc = np.nan
     
+    # PR AUC / Average Precision
+    try:
+        pr_auc = average_precision_score(targets, probabilities)
+    except ValueError:
+        pr_auc = np.nan
+    
+    # Log Loss
+    try:
+        logloss = log_loss(targets, probabilities)
+    except ValueError:
+        logloss = np.nan
+    
+    # Brier Score
+    try:
+        brier = brier_score_loss(targets, probabilities)
+    except ValueError:
+        brier = np.nan
+    
     # Confusion Matrix
     cm = confusion_matrix(targets, predictions)
     
@@ -78,6 +96,9 @@ def calculate_metrics(predictions, probabilities, targets):
         'f1_score': f1,
         'specificity': specificity,
         'auc': auc,
+        'pr_auc': pr_auc,
+        'log_loss': logloss,
+        'brier_score': brier,
         'confusion_matrix': cm,
         'true_negatives': tn,
         'false_positives': fp,
@@ -209,7 +230,11 @@ def log_metrics_summary(log, metrics, probabilities):
     log.debug(f"Recall:            {metrics['recall']:.4f}")
     log.debug(f"F1-Score:          {metrics['f1_score']:.4f}")
     log.debug(f"Specificity:       {metrics['specificity']:.4f}")
-    log.debug(f"AUC:               {metrics['auc']:.4f}")
+    log.debug(f"\nThreshold-free Metrics:")
+    log.debug(f"ROC AUC:           {metrics['auc']:.4f}")
+    log.debug(f"PR AUC:            {metrics['pr_auc']:.4f}")
+    log.debug(f"Log Loss:          {metrics['log_loss']:.4f}")
+    log.debug(f"Brier Score:       {metrics['brier_score']:.4f}")
     log.debug("\nConfusion Matrix:")
     log.debug(f"                 Predicted")
     log.debug(f"              Healthy  Anomalous")
