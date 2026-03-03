@@ -317,13 +317,13 @@ def create_argparser():
         experiment_name='classifier_training',  # Will be set based on model_type
         batch_size=16,
         epochs=100,
-        patience=30,  # Early stopping patience (number of epochs without improvement)
+        patience=15,  # Early stopping patience (number of epochs without improvement)
         lr=3e-4,
         use_differential_lr=True,  # Use different learning rates for backbone and classifier
         weight_decay=0.01,
         num_workers=4,
         pretrained=True,
-        freeze_layers=0,  # Number of initial feature layers to freeze (0 = no freezing)
+        freeze_layers=6,  # Number of initial feature layers to freeze (0 = no freezing)
         augmentation_type='standard',  # 'none', 'standard'
         use_counterfactuals=False,
         training_category=None,  # New: 'healthy', 'anomalous', 'anomalous_with_findings', or None

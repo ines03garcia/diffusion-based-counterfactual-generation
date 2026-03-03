@@ -22,7 +22,7 @@ from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 from src.Classifiers.aux_scripts.utils import create_transforms
 
 
-def test_model(model, dataloader, device):
+def test_model(log, model, dataloader, device, threshold=0.5):
     """Test the model on the test set"""
     model.eval()
     predictions = []
@@ -30,6 +30,7 @@ def test_model(model, dataloader, device):
     targets = []
     image_names = []
     
+    log.info(f"Threshold for classification: {threshold}")
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Testing"):
             images, labels, names = batch
@@ -37,7 +38,7 @@ def test_model(model, dataloader, device):
             
             outputs = model(images)
             probs = torch.sigmoid(outputs).squeeze()  # Ensure 1D: (batch_size,)
-            preds = (probs > 0.5).float()
+            preds = (probs > threshold).float()
             
             predictions.extend(preds.cpu().numpy())
             probabilities.extend(probs.cpu().numpy())
@@ -197,7 +198,7 @@ def save_detailed_results(predictions, probabilities, targets, image_names, save
         return pd.DataFrame()
 
 
-def log_metrics_summary(log, metrics):
+def log_metrics_summary(log, metrics, probabilities):
     """Print a comprehensive metrics summary"""
     log.debug("\n" + "="*50)
     log.debug("           TEST SET RESULTS")
@@ -215,6 +216,14 @@ def log_metrics_summary(log, metrics):
     log.debug(f"Actual Healthy    {metrics['true_negatives']:4d}      {metrics['false_positives']:4d}")
     log.debug(f"    Anomalous     {metrics['false_negatives']:4d}      {metrics['true_positives']:4d}")
     log.debug("="*50)
+
+    # Log probability statistics for debugging
+    log.debug(f"\nProbability Statistics:")
+    log.debug(f"Min probability: {probabilities.min():.4f}")
+    log.debug(f"Max probability: {probabilities.max():.4f}")
+    log.debug(f"Mean probability: {probabilities.mean():.4f}")
+    log.debug(f"Median probability: {np.median(probabilities):.4f}")
+    log.debug(f"Probabilities > threshold ({args.threshold}): {(probabilities > args.threshold).sum()} / {len(probabilities)}")
 
 
 def load_model(model_name, checkpoint_path, device, num_classes=1, log=None):
@@ -313,6 +322,21 @@ def log_class_summary(log, results_df):
     log.info(f"\n{class_summary}")
 
 
+def visualizations(log, output_dir, metrics, targets, probabilities):
+    # Confusion matrix
+    log.info("Plotting confusion matrix...")
+    plot_confusion_matrix(metrics['confusion_matrix'], class_names=['Healthy', 'Anomalous'], save_path=os.path.join(output_dir, 'confusion_matrix.png'))
+    
+    # ROC curve
+    log.info("Plotting ROC curve...")
+    plot_roc_curve(targets, probabilities,
+                   os.path.join(output_dir, 'roc_curve.png'))
+    
+    # Probability distribution
+    log.info("Plotting probability distribution...")
+    plot_probability_distribution(probabilities, targets,
+                                os.path.join(output_dir, 'probability_distribution.png'))
+
 def main():
     args = create_argparser().parse_args()
 
@@ -322,7 +346,7 @@ def main():
         level = logging.DEBUG
     else:
         level = logging.INFO
-    log = logger.Logger(log_dir=output_dir, log_file='training.log', level=level)
+    log = logger.Logger(log_dir=output_dir, log_file='testing.log', level=level)
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -356,24 +380,17 @@ def main():
     
     # Run testing
     log.info(f"\nTesting model on {len(test_dataset)} images...")
-    predictions, probabilities, targets, image_names = test_model(model, test_loader, device)
+    predictions, probabilities, targets, image_names = test_model(log, model, test_loader, device, threshold=args.threshold)
     
     # Calculate metrics
     metrics = calculate_metrics(predictions, probabilities, targets)
     
-    # Log probability statistics for debugging
-    log.info(f"\nProbability Statistics:")
-    log.info(f"Min probability: {probabilities.min():.4f}")
-    log.info(f"Max probability: {probabilities.max():.4f}")
-    log.info(f"Mean probability: {probabilities.mean():.4f}")
-    log.info(f"Median probability: {np.median(probabilities):.4f}")
-    log.info(f"Probabilities > 0.5: {(probabilities > 0.5).sum()} / {len(probabilities)}")
-    
     # Log results
     if args.debugging:
-        log_metrics_summary(log, metrics)
+        log_metrics_summary(log, metrics, probabilities)
     
     # Save metrics to JSON
+    log.info(f"\nSaving test metrics to {output_dir}...") 
     save_metrics_json(log, metrics, output_dir, args)
     
     # Save detailed results
@@ -382,21 +399,7 @@ def main():
     
     # Create visualizations
     log.info("\nCreating visualizations...")
-    class_names = ['Healthy', 'Anomalous']
-    
-    # Confusion matrix
-    log.info("Plotting confusion matrix...")
-    plot_confusion_matrix(metrics['confusion_matrix'], class_names,os.path.join(output_dir, 'confusion_matrix.png'))
-    
-    # ROC curve
-    log.info("Plotting ROC curve...")
-    plot_roc_curve(targets, probabilities,
-                   os.path.join(output_dir, 'roc_curve.png'))
-    
-    # Probability distribution
-    log.info("Plotting probability distribution...")
-    plot_probability_distribution(probabilities, targets,
-                                os.path.join(output_dir, 'probability_distribution.png'))
+    visualizations(log, output_dir, metrics, targets, probabilities)
     
     # Save test arguments
     log.info("\nSaving test arguments...")
@@ -427,6 +430,8 @@ def create_argparser():
                        help='Number of workers for data loading')
     parser.add_argument('--debugging', action='store_true', default=False,
                        help='Enable debugging mode with detailed logs')
+    parser.add_argument('--threshold', type=float, default=0.5,
+                       help='Decision threshold for binary classification (default: 0.5)')
     return parser
 
 
