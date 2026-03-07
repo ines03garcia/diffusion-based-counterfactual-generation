@@ -50,44 +50,25 @@ def test_model(log, model, dataloader, device, threshold=0.5):
 
 def calculate_metrics(predictions, probabilities, targets):
     """Calculate comprehensive metrics"""
-    # Basic metrics
-    accuracy = accuracy_score(targets, predictions)
-    balanced_acc = balanced_accuracy_score(targets, predictions)
-    precision = precision_score(targets, predictions, average='binary', zero_division=0)
-    recall = recall_score(targets, predictions, average='binary', zero_division=0)
-    f1 = f1_score(targets, predictions, average='binary', zero_division=0)
-    
-    # ROC AUC
     try:
+        accuracy = accuracy_score(targets, predictions)
+        balanced_acc = balanced_accuracy_score(targets, predictions)
+        precision = precision_score(targets, predictions, average='binary', zero_division=0)
+        recall = recall_score(targets, predictions, average='binary', zero_division=0)
+        f1 = f1_score(targets, predictions, average='binary', zero_division=0)
+
+        cm = confusion_matrix(targets, predictions)
+        tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+    
         auc = roc_auc_score(targets, probabilities)
-    except ValueError:
-        auc = np.nan
-    
-    # PR AUC / Average Precision
-    try:
         pr_auc = average_precision_score(targets, probabilities)
-    except ValueError:
-        pr_auc = np.nan
-    
-    # Log Loss
-    try:
+        
         logloss = log_loss(targets, probabilities)
-    except ValueError:
-        logloss = np.nan
-    
-    # Brier Score
-    try:
         brier = brier_score_loss(targets, probabilities)
-    except ValueError:
-        brier = np.nan
-    
-    # Confusion Matrix
-    cm = confusion_matrix(targets, predictions)
-    
-    # Specificity
-    tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
-    specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-    
+    except Exception as e:
+        raise ValueError(f"Error calculating metrics: {e}")
+        
     metrics = {
         'accuracy': accuracy,
         'balanced_accuracy': balanced_acc,
@@ -104,6 +85,18 @@ def calculate_metrics(predictions, probabilities, targets):
         'false_positives': fp,
         'false_negatives': fn,
         'true_positives': tp
+    }
+
+    percent_metrics = [
+    'accuracy','balanced_accuracy','precision','recall',
+    'f1_score','specificity','auc','pr_auc'
+    ]
+
+    metrics = {
+        k: round(v * 100, 1) if k in percent_metrics
+        else round(v, 3) if isinstance(v, float)
+        else v
+        for k, v in metrics.items()
     }
     
     return metrics
@@ -224,22 +217,22 @@ def log_metrics_summary(log, metrics, probabilities):
     log.debug("\n" + "="*50)
     log.debug("           TEST SET RESULTS")
     log.debug("="*50)
-    log.debug(f"Accuracy:          {metrics['accuracy']:.4f}")
-    log.debug(f"Balanced Accuracy: {metrics['balanced_accuracy']:.4f}")
-    log.debug(f"Precision:         {metrics['precision']:.4f}")
-    log.debug(f"Recall:            {metrics['recall']:.4f}")
-    log.debug(f"F1-Score:          {metrics['f1_score']:.4f}")
-    log.debug(f"Specificity:       {metrics['specificity']:.4f}")
+    log.debug(f"Accuracy:          {metrics['accuracy']}")
+    log.debug(f"Balanced Accuracy: {metrics['balanced_accuracy']}")
+    log.debug(f"Precision:         {metrics['precision']}")
+    log.debug(f"Recall:            {metrics['recall']}")
+    log.debug(f"F1-Score:          {metrics['f1_score']}")
+    log.debug(f"Specificity:       {metrics['specificity']}")
     log.debug(f"\nThreshold-free Metrics:")
-    log.debug(f"ROC AUC:           {metrics['auc']:.4f}")
-    log.debug(f"PR AUC:            {metrics['pr_auc']:.4f}")
-    log.debug(f"Log Loss:          {metrics['log_loss']:.4f}")
-    log.debug(f"Brier Score:       {metrics['brier_score']:.4f}")
+    log.debug(f"ROC AUC:           {metrics['auc']}")
+    log.debug(f"PR AUC:            {metrics['pr_auc']}")
+    log.debug(f"Log Loss:          {metrics['log_loss']}")
+    log.debug(f"Brier Score:       {metrics['brier_score']}")
     log.debug("\nConfusion Matrix:")
     log.debug(f"                 Predicted")
     log.debug(f"              Healthy  Anomalous")
-    log.debug(f"Actual Healthy    {metrics['true_negatives']:4d}      {metrics['false_positives']:4d}")
-    log.debug(f"    Anomalous     {metrics['false_negatives']:4d}      {metrics['true_positives']:4d}")
+    log.debug(f"Actual Healthy    {metrics['true_negatives']}      {metrics['false_positives']}")
+    log.debug(f"    Anomalous     {metrics['false_negatives']}      {metrics['true_positives']}")
     log.debug("="*50)
 
     # Log probability statistics for debugging
