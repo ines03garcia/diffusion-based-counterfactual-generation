@@ -11,3 +11,4 @@ iou_script.sh
 save_predictions.sh
 save_predictions.py
 Mammo-CLIP-output/
+script.sh
