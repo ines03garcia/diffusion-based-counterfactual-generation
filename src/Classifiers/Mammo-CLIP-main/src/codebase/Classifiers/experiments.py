@@ -83,7 +83,7 @@ def train_loop(args, device):
         args.train_folds = args.train_folds.sample(frac=args.data_frac, random_state=1, ignore_index=True)
 
     if args.clip_chk_pt_path is not None:
-        ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu")
+        ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
         if ckpt["config"]["model"]["image_encoder"]["model_type"] == "swin":
             args.image_encoder_type = ckpt["config"]["model"]["image_encoder"]["model_type"]
         elif ckpt["config"]["model"]["image_encoder"]["model_type"] == "cnn":
@@ -227,7 +227,7 @@ def train_loop(args, device):
         else:
             model_name = f'{args.model_base_name}_seed_{args.seed}_fold{args.cur_fold}_best_aucroc_ver{args.VER}.pth'
             print(f'[Fold{args.cur_fold}], AUC-ROC Score: {best_aucroc:.4f}')
-        predictions = torch.load(args.chk_pt_path / model_name, map_location='cpu')['predictions']
+        predictions = torch.load(args.chk_pt_path / model_name, map_location='cpu', weights_only=False)['predictions']
         args.valid_folds['prediction'] = predictions
 
     torch.cuda.empty_cache()
