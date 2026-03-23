@@ -317,7 +317,7 @@ def main():
 def create_argparser():
     defaults = dict(
         data_dir=DATASET_DIR,
-        metadata_path=os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv'),
+        metadata_path=os.path.join(METADATA_ROOT, 'resized_df_has_counterfactual.csv'),
         experiment_name='classifier_training',  # Will be set based on model_type
         batch_size=16,
         epochs=100,
