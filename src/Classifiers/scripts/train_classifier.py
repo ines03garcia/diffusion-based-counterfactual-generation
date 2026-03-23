@@ -97,6 +97,8 @@ def main():
     # Create transforms
     train_transform, val_transform = create_transforms(args.augmentation_type)
     log.info(f"Using augmentation type: {args.augmentation_type}")
+    if args.cv_fold is not None:
+        log.info(f"Using cross-validation fold {args.cv_fold}: train=all non-test folds except {args.cv_fold}, val=fold {args.cv_fold}")
     
     # Create datasets using the updated VinDrMammo_dataset class
     train_dataset = VinDrMammo_dataset(
@@ -107,7 +109,8 @@ def main():
         # Use new flag-based system
         training_category=args.training_category,  # Use argument for category filtering
         training_cf=args.use_counterfactuals,  # Use new counterfactuals flag
-        counterfactuals_dir=args.counterfactual_dir
+        counterfactuals_dir=args.counterfactual_dir,
+        cv_fold=args.cv_fold
     )
     log.debug(f"{len(train_dataset)} samples loaded from the training dataset.")
     
@@ -119,6 +122,7 @@ def main():
         transform=val_transform,
         use_counterfactuals=False,  # Use old parameter for validation (backward compatibility)
         counterfactuals_dir=args.counterfactual_dir,
+        cv_fold=args.cv_fold
     )
     log.debug(f"{len(val_dataset)} samples loaded from the validation dataset.")
 
@@ -328,6 +332,7 @@ def create_argparser():
         use_counterfactuals=False,
         training_category=None,  # New: 'healthy', 'anomalous', 'anomalous_with_findings', or None
         counterfactual_dir=None,
+        cv_fold=None,
         resume_from_checkpoint=None,
         debugging=False,
         seed=0
@@ -358,6 +363,8 @@ def create_argparser():
                        default=defaults['training_category'],
                        help='Filter training data by category')
     parser.add_argument('--counterfactual_dir', type=str, default=defaults['counterfactual_dir'])
+    parser.add_argument('--cv_fold', type=int, default=defaults['cv_fold'],
+                       help='Cross-validation fold index. If set, train/val are derived from fold column using non-test data.')
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--debugging', action='store_true', default=defaults['debugging'])
     parser.add_argument('--seed', type=int, default=0)

@@ -9,7 +9,7 @@ class VinDrMammo_dataset(Dataset):
     def __init__(self, data_dir, metadata_path, split="training", transform=None, 
                  use_counterfactuals=False, counterfactuals_dir=None,
                  training_category=None, training_cf=False, testing_category=None, testing_cf=False,
-                 anomaly_type="birads"):
+                 anomaly_type="birads", cv_fold=None):
         """
         Args:
             data_dir: path to the dataset root directory (DATA_ROOT)
@@ -23,6 +23,9 @@ class VinDrMammo_dataset(Dataset):
             testing_category: filter test data by category ("healthy", "anomalous", "anomalous_with_findings", or None for all)
             testing_cf: whether to include counterfactuals in test data
             anomaly_type: type of anomaly classification ("birads", "mass", or "calcification")
+            cv_fold: optional fold index for cross-validation.
+                If set, training uses all non-test rows where fold != cv_fold,
+                and validation uses all non-test rows where fold == cv_fold.
         """
         self.data_dir = data_dir
         self.metadata_path = metadata_path
@@ -35,6 +38,7 @@ class VinDrMammo_dataset(Dataset):
         self.training_cf = training_cf # Include training counterfactuals
         self.testing_category = testing_category  # "healthy", "anomalous", "anomalous_with_findings", or None
         self.testing_cf = testing_cf # Include testing counterfactuals
+        self.cv_fold = cv_fold
         
         # Validate and store anomaly type
         if anomaly_type not in ["birads", "mass", "calcification"]:
@@ -48,9 +52,35 @@ class VinDrMammo_dataset(Dataset):
         
         # Load metadata
         self.df = pd.read_csv(metadata_path)
+
+        # Validate cross-validation configuration
+        if self.cv_fold is not None:
+            if 'fold' not in self.df.columns:
+                raise ValueError("Cross-validation requested but 'fold' column not found in metadata.")
+            available_folds = sorted(self.df['fold'].dropna().unique().tolist())
+            if self.cv_fold not in available_folds:
+                raise ValueError(
+                    f"Invalid cv_fold={self.cv_fold}. Available folds: {available_folds}"
+                )
         
         # Load data and create train/val split if needed
         self._load_data()
+
+    def _get_train_split_df(self):
+        """Return base dataframe for training split, with optional cross-validation."""
+        if self.cv_fold is None:
+            return self.df[self.df['split'] == 'training']
+
+        non_test_df = self.df[self.df['split'] != 'test']
+        return non_test_df[non_test_df['fold'] != self.cv_fold]
+
+    def _get_validation_split_df(self):
+        """Return base dataframe for validation split, with optional cross-validation."""
+        if self.cv_fold is None:
+            return self.df[self.df['split'] == 'validation']
+
+        non_test_df = self.df[self.df['split'] != 'test']
+        return non_test_df[non_test_df['fold'] == self.cv_fold]
     
     def _is_healthy(self, row):
         """
@@ -85,7 +115,7 @@ class VinDrMammo_dataset(Dataset):
     
     def load_train_data(self):
         """Load training data with optional category filtering and counterfactuals"""
-        train_df = self.df[self.df['split'] == 'training']
+        train_df = self._get_train_split_df()
         
         # Apply category filter if specified
         if self.training_category == "healthy":
@@ -124,7 +154,11 @@ class VinDrMammo_dataset(Dataset):
                 else:
                     print(f"Warning: Counterfactual image not found: {cf_path}")
         
-        print(f"Loaded {len(train_paths)} training images (category: {self.training_category or 'all'}, counterfactuals: {self.training_cf})")
+        cv_info = f", cv_fold: {self.cv_fold}" if self.cv_fold is not None else ""
+        print(
+            f"Loaded {len(train_paths)} training images "
+            f"(category: {self.training_category or 'all'}, counterfactuals: {self.training_cf}{cv_info})"
+        )
         return train_paths, train_labels, train_names
     
     def load_test_data(self):
@@ -174,7 +208,7 @@ class VinDrMammo_dataset(Dataset):
     
     def load_validation_data(self):
         """Load validation data with optional category filtering and counterfactuals"""
-        val_df = self.df[self.df['split'] == 'validation']
+        val_df = self._get_validation_split_df()
         
         # Apply category filter if specified (use testing category for validation)
         if self.testing_category == "healthy":
@@ -213,7 +247,11 @@ class VinDrMammo_dataset(Dataset):
                 else:
                     print(f"Warning: Counterfactual image not found: {cf_path}")
         
-        print(f"Loaded {len(val_paths)} validation images (category: {self.testing_category or 'all'}, counterfactuals: {self.testing_cf})")
+        cv_info = f", cv_fold: {self.cv_fold}" if self.cv_fold is not None else ""
+        print(
+            f"Loaded {len(val_paths)} validation images "
+            f"(category: {self.testing_category or 'all'}, counterfactuals: {self.testing_cf}{cv_info})"
+        )
         return val_paths, val_labels, val_names
     
     def load_all_data(self):
@@ -310,6 +348,7 @@ class VinDrMammo_dataset(Dataset):
             'class_distribution': class_dist,
             'uses_counterfactuals': self.use_counterfactuals,
             'anomaly_type': self.anomaly_type,
+            'cv_fold': self.cv_fold,
             'training_category': self.training_category,
             'training_cf': self.training_cf,
             'testing_category': self.testing_category,
@@ -325,6 +364,7 @@ class VinDrMammo_dataset(Dataset):
             'total_samples': len(self.image_paths),
             'class_distribution': self.get_class_distribution(),
             'anomaly_type': self.anomaly_type,
+            'cv_fold': self.cv_fold,
             'training_config': {
                 'category_filter': self.training_category or 'all',
                 'include_counterfactuals': self.training_cf
