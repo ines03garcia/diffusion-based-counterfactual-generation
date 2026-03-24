@@ -30,3 +30,4 @@ pynvml
 omegaconf
 # For the Mammo-CLIP
 imgaug
+xlrd
