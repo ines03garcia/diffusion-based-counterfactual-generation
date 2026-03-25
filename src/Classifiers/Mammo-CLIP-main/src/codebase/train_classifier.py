@@ -77,6 +77,9 @@ def config():
     parser.add_argument("--weighted-BCE", default='n', type=str)
     parser.add_argument("--balanced-dataloader", default='n', type=str)
 
+    parser.add_argument('--use_counterfactuals', action='store_true', default=False)
+    parser.add_argument('--counterfactual_dir', default=None, type=str, help='Path to folder with counterfactual images')
+
     return parser.parse_args()
 
 
@@ -139,6 +142,17 @@ def main(args):
             "fold2": 74.88425925925925,
             "fold3": 74.884259259259255,
         }
+    
+    elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "anomaly":
+        if args.use_counterfactuals:
+            args.BCE_weights = {
+                "pos_wt": 1.577, # 8527 negative, 5406 (4273 og + 1133 cf) positive
+            }
+        else:
+            args.BCE_weights = {
+                "pos_wt": 1.996, # 8527 negative, 4273 positive
+            }
+
 
     if args.balanced_dataloader == "y":
         args.sampler_weights = {

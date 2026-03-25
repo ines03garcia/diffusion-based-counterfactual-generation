@@ -20,7 +20,8 @@ class MammoDataset(Dataset):
         self.image_encoder_type = args.image_encoder_type
         self.label = args.label
 
-        print(transform)
+        if transform != None:
+            print(transform)
 
     def __len__(self):
         return len(self.df)
@@ -28,6 +29,7 @@ class MammoDataset(Dataset):
     def __getitem__(self, idx):
         data = self.df.iloc[idx]
         img_path = self.dir_path / str(self.df.iloc[idx]['patient_id']) / str(self.df.iloc[idx]['image_id'])
+        print(f"\n{img_path}")
         if self.dataset.lower() == "rsna":
             img_path = f'{img_path}.png'
         if (
@@ -43,6 +45,7 @@ class MammoDataset(Dataset):
             img = Image.open(img_path).convert('RGB')
         else:
             img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            print(f"Original image shape: {img.shape}")
 
         if self.transform and (
                 self.args.arch.lower() == "swin_tiny_custom_norm" or

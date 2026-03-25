@@ -29,6 +29,17 @@ def do_experiments(args, device):
     args.data_dir = Path(args.data_dir)
     args.df = pd.read_csv(args.data_dir / args.csv_file)
     args.df = args.df.fillna(0)
+
+    def _aggregate_valid_df(valid_df):
+        if args.dataset.lower() == "vindr":
+            return valid_df
+        if args.dataset.lower() == "rsna":
+            cols = ['patient_id', 'laterality', args.label, 'prediction']
+            if 'fold' in valid_df.columns:
+                cols.append('fold')
+            return valid_df[cols].groupby(['patient_id', 'laterality']).mean()
+        return valid_df
+
     print(f"df shape: {args.df.shape}")
     print(args.df.columns)
     oof_df = pd.DataFrame()
@@ -53,11 +64,30 @@ def do_experiments(args, device):
 
         oof_df = pd.concat([oof_df, _oof_df])
 
-    if args.dataset.lower() == "rsna":
+    if args.n_folds == 0:
+        args.cur_fold = -1
+        seed_all(args.seed)
+
+        if 'split' not in args.df.columns:
+            raise ValueError(
+                "n_folds=0 requires a 'split' column with 'training'/'test' values in the CSV."
+            )
+
+        if args.dataset.lower() in {"vindr", "rsna"}:
+            args.train_split = args.df[args.df['split'] == "training"].reset_index(drop=True)
+            args.valid_split = args.df[args.df['split'] == "test"].reset_index(drop=True)
+            print(f"train_split shape: {args.train_split.shape}")
+            print(f"valid_split shape: {args.valid_split.shape}")
+
+        if args.inference_mode == 'y':
+            oof_df = inference_loop(args)
+        else:
+            oof_df = train_loop(args, device)
+
+    if args.dataset.lower() == "rsna" and not oof_df.empty:
         oof_df = oof_df.reset_index(drop=True)
         oof_df['prediction_bin'] = oof_df['prediction'].apply(lambda x: 1 if x >= 0.5 else 0)
-        oof_df_agg = oof_df[['patient_id', 'laterality', args.label, 'prediction', 'fold']].groupby(
-            ['patient_id', 'laterality']).mean()
+        oof_df_agg = _aggregate_valid_df(oof_df)
 
         print(oof_df_agg.head(10))
         print('================ CV ================')
@@ -79,8 +109,16 @@ def do_experiments(args, device):
 
 def train_loop(args, device):
     print(f'\n================== fold: {args.cur_fold} training ======================')
-    if args.data_frac < 1.0:
-        args.train_folds = args.train_folds.sample(frac=args.data_frac, random_state=1, ignore_index=True)
+
+    valid_df_attr = 'valid_folds' if args.n_folds > 0 else 'valid_split'
+    train_df_attr = 'train_folds' if args.n_folds > 0 else 'train_split'
+
+    if args.n_folds > 0 and args.data_frac < 1.0:
+        setattr(
+            args,
+            train_df_attr,
+            getattr(args, train_df_attr).sample(frac=args.data_frac, random_state=1, ignore_index=True)
+        )
 
     if args.clip_chk_pt_path is not None:
         ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
@@ -93,11 +131,10 @@ def train_loop(args, device):
         ckpt = None
     if args.running_interactive:
         # test on small subsets of data on interactive mode
-        args.train_folds = args.train_folds.sample(1000)
-        args.valid_folds = args.valid_folds.sample(n=1000)
+        setattr(args, train_df_attr, getattr(args, train_df_attr).sample(1000))
+        setattr(args, valid_df_attr, getattr(args, valid_df_attr).sample(n=1000))
 
     train_loader, valid_loader = get_dataloader_RSNA(args)
-    print(f'train_loader: {len(train_loader)}, valid_loader: {len(valid_loader)}')
 
     model = None
     if args.label.lower() == "density":
@@ -112,6 +149,7 @@ def train_loop(args, device):
     scalar = None
     mapper = None
     attr_embs = None
+    # Debbugged até aqui!
     if 'breast_clip' in args.arch:
         print(f"Architecture: {args.arch}")
         print(args.image_encoder_type)
@@ -133,14 +171,17 @@ def train_loop(args, device):
         scaler = torch.cuda.amp.GradScaler()
 
     model = model.to(device)
-    print(model)
+    #print(model)
 
     logger = SummaryWriter(args.tb_logs_path / f'fold{args.cur_fold}')
 
     if args.label.lower() == "density" or args.label.lower() == "birads":
         criterion = torch.nn.CrossEntropyLoss()
     elif args.weighted_BCE == "y":
-        pos_wt = torch.tensor([args.BCE_weights[f"fold{args.cur_fold}"]]).to('cuda')
+        if args.n_folds == 0:
+            pos_wt = torch.tensor([args.BCE_weights["pos_wt"]]).to('cuda')
+        else:
+            pos_wt = torch.tensor([args.BCE_weights[f"fold{args.cur_fold}"]]).to('cuda')
         print(f'pos_wt: {pos_wt}')
         criterion = torch.nn.BCEWithLogitsLoss(reduction='mean', pos_weight=pos_wt)
     else:
@@ -163,14 +204,18 @@ def train_loop(args, device):
         avg_val_loss, predictions = valid_fn(
             valid_loader, model, criterion, args, device, epoch, mapper=mapper, attr_embs=attr_embs, logger=logger
         )
-        args.valid_folds['prediction'] = predictions
+        valid_df = getattr(args, valid_df_attr)
+        valid_df['prediction'] = predictions
+        setattr(args, valid_df_attr, valid_df)
 
         valid_agg = None
         if args.dataset.lower() == "vindr":
-            valid_agg = args.valid_folds
+            valid_agg = valid_df
         elif args.dataset.lower() == "rsna":
-            valid_agg = args.valid_folds[['patient_id', 'laterality', args.label, 'prediction', 'fold']].groupby(
-                ['patient_id', 'laterality']).mean()
+            agg_cols = ['patient_id', 'laterality', args.label, 'prediction']
+            if 'fold' in valid_df.columns:
+                agg_cols.append('fold')
+            valid_agg = valid_df[agg_cols].groupby(['patient_id', 'laterality']).mean()
 
         if args.label.lower() == "density" or args.label.lower() == "birads":
             correct_predictions = (valid_agg[args.label] == valid_agg['prediction']).sum()
@@ -228,11 +273,13 @@ def train_loop(args, device):
             model_name = f'{args.model_base_name}_seed_{args.seed}_fold{args.cur_fold}_best_aucroc_ver{args.VER}.pth'
             print(f'[Fold{args.cur_fold}], AUC-ROC Score: {best_aucroc:.4f}')
         predictions = torch.load(args.chk_pt_path / model_name, map_location='cpu', weights_only=False)['predictions']
-        args.valid_folds['prediction'] = predictions
+        valid_df = getattr(args, valid_df_attr)
+        valid_df['prediction'] = predictions
+        setattr(args, valid_df_attr, valid_df)
 
     torch.cuda.empty_cache()
     gc.collect()
-    return args.valid_folds
+    return getattr(args, valid_df_attr)
 
 
 # def inference_loop(args):
@@ -251,13 +298,17 @@ def train_loop(args, device):
 #     return args.valid_folds.copy()
 
 def inference_loop(args):
+    valid_df_attr = 'valid_folds' if args.n_folds > 0 else 'valid_split'
+    valid_df = getattr(args, valid_df_attr)
+
     print(f'================== fold: {args.cur_fold} validating ======================')
-    print(args.valid_folds.shape)
+    print(valid_df.shape)
     predictions = torch.load(
         args.chk_pt_path,
         map_location='cpu',weights_only=False)['predictions']
     print(f'predictions: {predictions.shape}', type(predictions))
-    args.valid_folds['prediction'] = predictions
+    valid_df['prediction'] = predictions
+    setattr(args, valid_df_attr, valid_df)
     if args.label.lower() == "density" or args.label.lower() == "birads":
         key="density"
     elif args.label.lower() == "cancer":
@@ -271,8 +322,10 @@ def inference_loop(args):
         return None
     #valid_agg = args.valid_folds[['patient_id', 'laterality', 'cancer', 'prediction', 'fold']].groupby(
         #['patient_id', 'laterality']).mean()
-    valid_agg = args.valid_folds[['patient_id', 'laterality', key, 'prediction', 'fold']].groupby(
-    ['patient_id', 'laterality']).mean()
+    agg_cols = ['patient_id', 'laterality', key, 'prediction']
+    if 'fold' in valid_df.columns:
+        agg_cols.append('fold')
+    valid_agg = valid_df[agg_cols].groupby(['patient_id', 'laterality']).mean()
     print("Valid Agg key shape and dtype:")
     print(valid_agg[key].values.shape, valid_agg[key].values.dtype)
     print("Valid Agg prediction shape and dtype:")
@@ -283,7 +336,7 @@ def inference_loop(args):
     print(f"Prediction sample: {pred[:10]}")
     aucroc = auroc(gt.astype(int), pred)
     print(f'AUC-ROC: {aucroc}')
-    return args.valid_folds.copy()
+    return valid_df.copy()
 
 
 def train_fn(train_loader, model, criterion, optimizer, epoch, args, scheduler, mapper, attr_embs, logger, device):
