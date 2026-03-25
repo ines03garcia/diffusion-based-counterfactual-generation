@@ -149,7 +149,7 @@ def train_loop(args, device):
     scalar = None
     mapper = None
     attr_embs = None
-    # Debbugged até aqui!
+
     if 'breast_clip' in args.arch:
         print(f"Architecture: {args.arch}")
         print(args.image_encoder_type)

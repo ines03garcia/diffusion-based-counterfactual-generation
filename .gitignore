@@ -12,3 +12,4 @@ save_predictions.sh
 save_predictions.py
 Mammo-CLIP-output/
 script.sh
+test_script.sh
