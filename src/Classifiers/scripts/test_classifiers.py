@@ -14,9 +14,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
-from src.config import DATASET_DIR, METADATA_ROOT
+from src.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT
 from src.Classifiers.aux_scripts import logger
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
+from src.Classifiers.aux_scripts.Inbreast_dataset import Inbreast_dataset
 from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
 from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
 from src.Classifiers.aux_scripts.utils import create_transforms
@@ -358,7 +359,7 @@ def visualizations(log, output_dir, metrics, targets, probabilities):
 def main():
     args = create_argparser().parse_args()
 
-    output_dir = logger.Logger.configure(experiment_type=f"classification_{args.model_type}")
+    output_dir = logger.Logger.configure(experiment_type=f"classification_{args.model_type}_{args.dataset}")
 
     if args.debugging:
         level = logging.DEBUG
@@ -375,14 +376,30 @@ def main():
     
     # Create test dataset
     _, test_transform = create_transforms("none")
-    
-    test_dataset = VinDrMammo_dataset(
-        data_dir=args.data_dir,
-        metadata_path=args.metadata_path,
-        split="test",
-        transform=test_transform,
-        use_counterfactuals=False  # Don't use counterfactuals for testing
-    )
+
+    if args.dataset == 'vindr':
+        data_dir = args.data_dir or DATASET_DIR
+        metadata_path = args.metadata_path or os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv')
+        test_dataset = VinDrMammo_dataset(
+            data_dir=data_dir,
+            metadata_path=metadata_path,
+            split="test",
+            transform=test_transform,
+            use_counterfactuals=False  # Don't use counterfactuals for testing
+        )
+    else:
+        data_dir = args.data_dir or os.path.join(IMAGES_ROOT, 'Inbreast_png')
+        metadata_path = args.metadata_path or os.path.join(METADATA_ROOT, 'inbreast_test_metadata.csv')
+        test_dataset = Inbreast_dataset(
+            data_dir=data_dir,
+            metadata_path=metadata_path,
+            split="test",
+            transform=test_transform,
+        )
+
+    log.info(f"Dataset: {args.dataset}")
+    log.info(f"Data directory: {data_dir}")
+    log.info(f"Metadata path: {metadata_path}")
     
     log.debug(f"\nTest dataset info:")
     log.debug(test_dataset.get_split_info())
@@ -433,15 +450,16 @@ def main():
 def create_argparser():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--dataset', type=str, default='vindr', choices=['vindr', 'inbreast'],
+                       help='Dataset to evaluate on (vindr or inbreast)')
     parser.add_argument('--model_type', type=str, required=True, choices=['convnext', 'vit'],
                        help='Type of model to load (convnext or vit)')
     parser.add_argument('--checkpoint_path', type=str, required=True,
                        help='Path to the trained model checkpoint')
-    parser.add_argument('--data_dir', type=str, default=DATASET_DIR,
-                       help='Root directory containing the data')
-    parser.add_argument('--metadata_path', type=str, 
-                       default=os.path.join(METADATA_ROOT, 'resized_df_counterfactuals.csv'),
-                       help='Path to the metadata CSV file')
+    parser.add_argument('--data_dir', type=str, default=None,
+                       help='Root directory containing images (dataset-specific default if omitted)')
+    parser.add_argument('--metadata_path', type=str, default=None,
+                       help='Path to metadata CSV (dataset-specific default if omitted)')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='Batch size for testing')
     parser.add_argument('--num_workers', type=int, default=4,
