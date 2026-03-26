@@ -255,20 +255,29 @@ def run_inference(args):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run_timestamp = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
+    run_folder_name = datetime.now().strftime(f"test_{run_timestamp}")
+    run_output_dir = output_dir / run_folder_name
+    run_output_dir.mkdir(parents=True, exist_ok=True)
+
     metrics["run_timestamp"] = run_timestamp
 
-    per_image_path = output_dir / "inference_per_image.csv"
-    metrics_path = output_dir / f"inference_metrics_{run_timestamp}.json"
+    per_image_path = run_output_dir / "inference_per_image.csv"
+    metrics_path = run_output_dir / f"test_metrics.json"
+    args_path = run_output_dir / "test_args.json"
 
     results_df.to_csv(per_image_path, index=False)
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
+    with open(args_path, "w") as f:
+        json.dump(vars(args), f, indent=2)
 
     print("\n=== Inference metrics ===")
     for key, value in metrics.items():
         print(f"{key}: {value}")
+    print(f"\nRun output directory: {run_output_dir}")
     print(f"\nSaved per-image results: {per_image_path}")
     print(f"Saved metrics: {metrics_path}")
+    print(f"Saved args: {args_path}")
 
 
 if __name__ == "__main__":
