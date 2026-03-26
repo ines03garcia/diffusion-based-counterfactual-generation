@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 
@@ -8,8 +9,12 @@ import torch
 from PIL import Image
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
+    balanced_accuracy_score,
+    brier_score_loss,
     confusion_matrix,
     f1_score,
+    log_loss,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -150,23 +155,38 @@ def build_test_df(args):
 
 
 def compute_metrics(y_true, y_prob, threshold):
+    def to_pct(value):
+        return round(float(value) * 100.0, 1)
+
     y_pred = (y_prob >= threshold).astype(int)
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    specificity = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+
+    # Clip probabilities for numerically stable log-loss.
+    y_prob_clipped = np.clip(y_prob, 1e-7, 1.0 - 1e-7)
 
     metrics = {
         "n_samples": int(len(y_true)),
         "threshold": float(threshold),
-        "accuracy": float(accuracy_score(y_true, y_pred)),
-        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
-        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
-        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
-        "confusion_matrix": confusion_matrix(y_true, y_pred).tolist(),
+        "Acc": to_pct(accuracy_score(y_true, y_pred)),
+        "Bacc": to_pct(balanced_accuracy_score(y_true, y_pred)),
+        "Prec": to_pct(precision_score(y_true, y_pred, zero_division=0)),
+        "Recall": to_pct(recall_score(y_true, y_pred, zero_division=0)),
+        "F1": to_pct(f1_score(y_true, y_pred, zero_division=0)),
+        "Spec": to_pct(specificity),
+        "confusion_matrix": cm.tolist(),
+        "log_loss": round(float(log_loss(y_true, y_prob_clipped, labels=[0, 1])), 3),
+        "brier_score": round(float(brier_score_loss(y_true, y_prob)), 3),
     }
 
     unique = np.unique(y_true)
     if len(unique) > 1:
-        metrics["roc_auc"] = float(roc_auc_score(y_true, y_prob))
+        metrics["AUC"] = to_pct(roc_auc_score(y_true, y_prob))
+        metrics["PR_auc"] = to_pct(average_precision_score(y_true, y_prob))
     else:
-        metrics["roc_auc"] = None
+        metrics["AUC"] = None
+        metrics["PR_auc"] = None
 
     return metrics, y_pred
 
@@ -234,8 +254,11 @@ def run_inference(args):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    run_timestamp = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
+    metrics["run_timestamp"] = run_timestamp
+
     per_image_path = output_dir / "inference_per_image.csv"
-    metrics_path = output_dir / "inference_metrics.json"
+    metrics_path = output_dir / f"inference_metrics_{run_timestamp}.json"
 
     results_df.to_csv(per_image_path, index=False)
     with open(metrics_path, "w") as f:
