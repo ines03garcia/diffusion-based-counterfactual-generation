@@ -175,9 +175,9 @@ def compute_metrics(y_true, y_prob, threshold):
         "Recall": to_pct(recall_score(y_true, y_pred, zero_division=0)),
         "F1": to_pct(f1_score(y_true, y_pred, zero_division=0)),
         "Spec": to_pct(specificity),
-        "confusion_matrix": cm.tolist(),
         "log_loss": round(float(log_loss(y_true, y_prob_clipped, labels=[0, 1])), 3),
         "brier_score": round(float(brier_score_loss(y_true, y_prob)), 3),
+        "confusion_matrix": cm.tolist(),
     }
 
     unique = np.unique(y_true)
