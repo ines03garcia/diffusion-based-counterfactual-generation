@@ -229,7 +229,7 @@ def save_outputs(args, metrics, results_df, y_true, y_prob):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run_timestamp = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
-    run_folder_name = datetime.now().strftime("run_%d-%m-%Y_%H-%M-%S")
+    run_folder_name = datetime.now().strftime(f"test_{run_timestamp}")
     run_output_dir = output_dir / run_folder_name
     run_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -238,15 +238,13 @@ def save_outputs(args, metrics, results_df, y_true, y_prob):
     per_image_path = run_output_dir / "inference_per_image.csv"
     args_path = run_output_dir / "test_args.json"
     detailed_results_path = run_output_dir / "detailed_results.csv"
-    legacy_metrics_path = run_output_dir / f"test_metrics_{run_timestamp}.json"
+    legacy_metrics_path = run_output_dir / f"test_metrics.json"
     confusion_matrix_path = run_output_dir / "confusion_matrix.png"
     roc_curve_path = run_output_dir / "roc_curve.png"
     probability_distribution_path = run_output_dir / "probability_distribution.png"
 
     results_df.to_csv(per_image_path, index=False)
     results_df.to_csv(detailed_results_path, index=False)
-    with open(metrics_path, "w") as f:
-        json.dump(metrics, f, indent=2)
     with open(legacy_metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
     with open(args_path, "w") as f:
@@ -263,7 +261,6 @@ def save_outputs(args, metrics, results_df, y_true, y_prob):
     print(f"\nRun output directory: {run_output_dir}")
     print(f"\nSaved per-image results: {per_image_path}")
     print(f"Saved detailed results: {detailed_results_path}")
-    print(f"Saved metrics: {metrics_path}")
     print(f"Saved legacy metrics: {legacy_metrics_path}")
     print(f"Saved args: {args_path}")
     print(f"Saved confusion matrix: {confusion_matrix_path}")
