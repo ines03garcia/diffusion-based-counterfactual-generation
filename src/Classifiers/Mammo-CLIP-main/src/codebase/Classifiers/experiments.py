@@ -187,8 +187,8 @@ def train_loop(args, device):
     else:
         criterion = torch.nn.BCEWithLogitsLoss(reduction='mean')
 
-    best_aucroc = 0.
-    best_acc = 0
+    best_aucroc = -1.0
+    best_acc = -1.0
     for epoch in range(args.epochs):
         start_time = time.time()
         avg_loss = train_fn(
@@ -255,7 +255,16 @@ def train_loop(args, device):
 
             if best_aucroc < aucroc:
                 best_aucroc = aucroc
-                model_name = f'{args.model_base_name}_seed_{args.seed}_fold{args.cur_fold}_best_aucroc_ver{args.VER}.pth'
+                if args.n_folds > 0:
+                    if args.use_counterfactuals:
+                        model_name = f'{args.model_base_name}_seed_{args.seed}_fold{args.cur_fold}_cf_best_aucroc_ver{args.VER}.pth'
+                    else:
+                        model_name = f'{args.model_base_name}_seed_{args.seed}_fold{args.cur_fold}_best_aucroc_ver{args.VER}.pth'
+                else:
+                    if args.use_counterfactuals:
+                        model_name = f'{args.model_base_name}_seed_{args.seed}_cf_best_aucroc_ver{args.VER}.pth'
+                    else:
+                        model_name = f'{args.model_base_name}_seed_{args.seed}_best_aucroc_ver{args.VER}.pth'
                 print(f'Epoch {epoch + 1} - Save aucroc: {best_aucroc:.4f} Model')
                 torch.save(
                     {
@@ -267,11 +276,12 @@ def train_loop(args, device):
                 )
 
         if args.label.lower() == "density" or args.label.lower() == "birads":
-            model_name = f'{args.model_base_name}_seed_{args.seed}_fold{args.cur_fold}_best_acc_cancer_ver{args.VER}.pth'
             print(f'[Fold{args.cur_fold}], Best Accuracy: {best_acc * 100:.4f}')
         else:
-            model_name = f'{args.model_base_name}_seed_{args.seed}_fold{args.cur_fold}_best_aucroc_ver{args.VER}.pth'
-            print(f'[Fold{args.cur_fold}], AUC-ROC Score: {best_aucroc:.4f}')
+            if args.n_folds > 0:
+                print(f'[Fold{args.cur_fold}], Best AUC-ROC Score: {best_aucroc:.4f}')
+            else:
+                print(f'[Best AUC-ROC Score: {best_aucroc:.4f}]')
         predictions = torch.load(args.chk_pt_path / model_name, map_location='cpu', weights_only=False)['predictions']
         valid_df = getattr(args, valid_df_attr)
         valid_df['prediction'] = predictions

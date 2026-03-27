@@ -99,6 +99,11 @@ def main(args):
     args.output_path = output_path
     args.tb_logs_path = tb_logs_path
 
+    if args.use_counterfactuals:
+        chk_pt_path = chk_pt_path / "_cf"
+        output_path = output_path / "_cf"
+        tb_logs_path = tb_logs_path / "_cf"
+
     os.makedirs(chk_pt_path, exist_ok=True)
     os.makedirs(output_path, exist_ok=True)
     os.makedirs(tb_logs_path, exist_ok=True)
@@ -110,7 +115,10 @@ def main(args):
     print('torch version:', torch.__version__)
     print("====================> Paths <====================")
 
-    pickle.dump(args, open(os.path.join(output_path, f"seed_{args.seed}_train_configs.pkl"), "wb"))
+    if args.n_folds > 1:
+        pickle.dump(args, open(os.path.join(output_path, f"seed_{args.seed}_fold_{args.start_fold}_train_configs.pkl"), "wb"))
+    else:
+        pickle.dump(args, open(os.path.join(output_path, f"seed_{args.seed}_train_configs.pkl"), "wb"))
     torch.cuda.empty_cache()
 
     if args.weighted_BCE == "y" and args.dataset.lower() == "rsna" and args.label.lower() == "cancer":
@@ -146,7 +154,7 @@ def main(args):
     elif args.weighted_BCE == "y" and args.dataset.lower() == "vindr" and args.label.lower() == "anomaly":
         if args.use_counterfactuals:
             args.BCE_weights = {
-                "pos_wt": 1.577, # 8527 negative, 5406 (4273 og + 1133 cf) positive
+                "pos_wt": 2.261, # 9660 (8527 og + 1133 cf) negative, 4273 positive
             }
         else:
             args.BCE_weights = {

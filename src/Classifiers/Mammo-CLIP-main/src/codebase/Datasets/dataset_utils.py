@@ -142,11 +142,11 @@ def get_dataloader_RSNA(args):
         train_tfm = get_transforms(args)
 
     if args.n_folds == 0:
-        train_dataset = MammoDataset(args=args, df=args.train_split, transform=train_tfm)
-        valid_dataset = MammoDataset(args=args, df=args.valid_split, transform=val_tfm)
+        train_dataset = MammoDataset(args=args, df=args.train_split, transform=train_tfm, is_training=True)
+        valid_dataset = MammoDataset(args=args, df=args.valid_split, transform=val_tfm, is_training=False)
     else:
-        train_dataset = MammoDataset(args=args, df=args.train_folds, transform=train_tfm)
-        valid_dataset = MammoDataset(args=args, df=args.valid_folds, transform=val_tfm)
+        train_dataset = MammoDataset(args=args, df=args.train_folds, transform=train_tfm, is_training=True)
+        valid_dataset = MammoDataset(args=args, df=args.valid_folds, transform=val_tfm, is_training=False)
 
     if args.balanced_dataloader == "y":
         weight_path = args.output_path / f"random_sampler_weights_fold{str(args.cur_fold)}.pkl"

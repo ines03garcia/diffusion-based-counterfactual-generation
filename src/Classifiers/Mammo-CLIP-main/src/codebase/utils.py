@@ -47,9 +47,9 @@ def seed_all(seed):
 
 
 def get_Paths(args):
-    chk_pt_path = Path(f"{args.checkpoints}/{args.dataset}/{args.model_type}/{args.arch}/{args.root}")
-    output_path = Path(f"{args.output_path}/{args.dataset}/zz/{args.model_type}/{args.arch}/{args.root}")
-    tb_logs_path = Path(f"{args.tensorboard_path}/{args.dataset}/{args.model_type}/{args.arch}/{args.root}")
+    chk_pt_path = Path(f"{args.checkpoints}/{args.dataset}_{args.model_type}")
+    output_path = Path(f"{args.output_path}/{args.dataset}_{args.model_type}")
+    tb_logs_path = Path(f"{args.tensorboard_path}/{args.dataset}_{args.model_type}")
 
     return chk_pt_path, output_path, tb_logs_path
 

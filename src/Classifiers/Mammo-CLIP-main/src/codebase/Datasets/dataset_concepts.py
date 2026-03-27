@@ -1,4 +1,5 @@
 from collections import defaultdict
+from pathlib import Path
 
 import cv2
 import matplotlib.patches as patches
@@ -11,7 +12,7 @@ from torch.utils.data import Dataset
 
 
 class MammoDataset(Dataset):
-    def __init__(self, args, df, transform=None):
+    def __init__(self, args, df, transform=None, is_training=False):
         self.args = args
         self.df = df
         self.dir_path = args.data_dir / args.img_dir
@@ -19,19 +20,75 @@ class MammoDataset(Dataset):
         self.transform = transform
         self.image_encoder_type = args.image_encoder_type
         self.label = args.label
+        self.use_counterfactuals = args.use_counterfactuals
+        self.counterfactual_dir = args.counterfactual_dir
+        self.is_training = is_training
+
+        self.samples = self._build_samples()
 
         if transform != None:
             print(transform)
 
     def __len__(self):
-        return len(self.df)
+        return len(self.samples)
+
+    def _build_original_image_path(self, data):
+        img_path = self.dir_path / str(data['patient_id']) / str(data['image_id'])
+        if self.dataset.lower() == "rsna":
+            img_path = Path(f'{img_path}.png')
+        return img_path
+
+    def _resolve_counterfactual_path(self, data):
+        if not self.counterfactual_dir:
+            return None
+
+        counterfactual_dir = Path(self.counterfactual_dir)
+        image_id = str(data['image_id'])
+        patient_id = str(data['patient_id'])
+
+        candidates = [
+            counterfactual_dir / image_id,
+            counterfactual_dir / patient_id / image_id,
+        ]
+        if self.dataset.lower() == "rsna" and not image_id.lower().endswith(".png"):
+            candidates.extend([
+                counterfactual_dir / f"{image_id}.png",
+                counterfactual_dir / patient_id / f"{image_id}.png",
+            ])
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _build_samples(self):
+        samples = []
+        add_counterfactuals = self.is_training and self.use_counterfactuals and self.counterfactual_dir
+
+        for idx in range(len(self.df)):
+            data = self.df.iloc[idx]
+            samples.append({
+                'idx': idx,
+                'img_path': self._build_original_image_path(data),
+                'label': data[self.label],
+            })
+
+            if add_counterfactuals and ('has_counterfactual' in self.df.columns) and data['has_counterfactual'] == 1:
+                cf_path = self._resolve_counterfactual_path(data)
+                if cf_path is not None:
+                    samples.append({
+                        'idx': idx,
+                        'img_path': cf_path,
+                        'label': 0,
+                    })
+
+        return samples
 
     def __getitem__(self, idx):
-        data = self.df.iloc[idx]
-        img_path = self.dir_path / str(self.df.iloc[idx]['patient_id']) / str(self.df.iloc[idx]['image_id'])
+        sample = self.samples[idx]
+        data = self.df.iloc[sample['idx']]
+        img_path = sample['img_path']
         print(f"\n{img_path}")
-        if self.dataset.lower() == "rsna":
-            img_path = f'{img_path}.png'
         if (
                 self.args.arch.lower() == "upmc_breast_clip_det_b5_period_n_ft" or
                 self.args.arch.lower() == "upmc_vindr_breast_clip_det_b5_period_n_ft" or
@@ -69,7 +126,7 @@ class MammoDataset(Dataset):
 
         return {
             'x': img.unsqueeze(0),
-            'y': torch.tensor(data[self.label], dtype=torch.long),
+            'y': torch.tensor(sample['label'], dtype=torch.long),
             'img_path': str(img_path)
         }
 
