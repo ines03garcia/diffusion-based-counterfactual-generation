@@ -2,24 +2,67 @@
 Preprocess metadata:
 1. Validate bounding boxes coordinates
 2. Resize to 512x512
+3. Output as JSON
 
 """
 import pandas as pd
 import ast
+import json
+
+def parse_serialized_list(value):
+    """Parse various malformed serialization formats to actual list."""
+    if value is None or pd.isna(value):
+        return []
+    
+    val_str = str(value).strip()
+    
+    if val_str in ['', '0', 'None', 'nan', '[]']:
+        return []
+    
+    try:
+        parsed = ast.literal_eval(val_str)
+        
+        if isinstance(parsed, list):
+            # Flatten nested lists and extract strings
+            result = []
+            for item in parsed:
+                if isinstance(item, list):
+                    result.extend([str(x) for x in item])
+                elif isinstance(item, str):
+                    try:
+                        inner = ast.literal_eval(item)
+                        if isinstance(inner, list):
+                            result.extend([str(x) for x in inner])
+                        else:
+                            result.append(str(inner))
+                    except:
+                        result.append(item)
+                else:
+                    result.append(str(item))
+            return result
+        
+        return [str(parsed)]
+    
+    except:
+        return []
 
 def parse_coordinates(value):
     """Parse string representation of list to actual list of ints."""
     if pd.isna(value):
-        return [0]
+        return []
     if isinstance(value, str):
         try:
-            return list(map(int, ast.literal_eval(value)))
+            parsed = ast.literal_eval(value)
+            if isinstance(parsed, list):
+                return [int(x) for x in parsed if x]
+            return [int(parsed)]
         except:
-            print("Error parsing string")
-            return [0]
+            return []
     if isinstance(value, list):
-        return list(map(int, value))
-    return [int(value)]
+        return [int(x) for x in value if x]
+    if isinstance(value, (int, float)):
+        return [int(value)] if value else []
+    return []
 
 def validate_bbox_coordinates(xmin_list, ymin_list, xmax_list, ymax_list):
     """
@@ -58,7 +101,7 @@ def resize_bbox_with_aspect_ratio(xmin_list, ymin_list, xmax_list, ymax_list,
     """
     # When no bbox
     if len(xmin_list) == 0 or len(ymin_list) == 0 or len(xmax_list) == 0 or len(ymax_list) == 0:
-        return 0, 0, 0, 0
+        return [], [], [], []
 
     # Calculate scale factor (same as image resizing)
     scale = target_size / max(orig_width, orig_height)
@@ -111,43 +154,84 @@ def process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=
     """
     Resize bboxes in grouped_df from original dimensions to 512x512.
     All images are 1520×912 originally.
+    Return list of dicts suitable for JSON output.
     """
-    # Process grouped_df
-    for idx, row in df_grouped.iterrows():
-        xmin_list = parse_coordinates(row['resized_xmin'])
-        ymin_list = parse_coordinates(row['resized_ymin'])
-        xmax_list = parse_coordinates(row['resized_xmax'])
-        ymax_list = parse_coordinates(row['resized_ymax'])
-
-        # Validate/correct coordinates before resizing
-        xmin_list, ymin_list, xmax_list, ymax_list = validate_bbox_coordinates(
-            xmin_list, ymin_list, xmax_list, ymax_list
-        )
-        
-        # Resize with aspect ratio preservation
-        res_xmin, res_ymin, res_xmax, res_ymax = resize_bbox_with_aspect_ratio(
-            xmin_list, ymin_list, xmax_list, ymax_list,
-            orig_width, orig_height, target_size
-        )
-        
-        # Update dataframe
-        df_grouped.at[idx, 'resized_xmin'] = str(res_xmin)
-        df_grouped.at[idx, 'resized_ymin'] = str(res_ymin)
-        df_grouped.at[idx, 'resized_xmax'] = str(res_xmax)
-        df_grouped.at[idx, 'resized_ymax'] = str(res_ymax)
+    output = []
     
-    return df_grouped
+    for idx, row in df_grouped.iterrows():
+        record = row.to_dict()
+        
+        # Remove fold for test split (no cross-validation needed)
+        if record.get('split') == 'test':
+            record.pop('fold', None)
+        
+        # Process finding_categories
+        if 'finding_categories' in record:
+            finding_cats = parse_serialized_list(record['finding_categories'])
+            # Special case: if only "No Finding", use scalar string
+            if finding_cats == ["No Finding"]:
+                record['finding_categories'] = "No Finding"
+                # Remove finding-related keys for "No Finding" records
+                record.pop('finding_birads', None)
+                record.pop('resized_xmin', None)
+                record.pop('resized_ymin', None)
+                record.pop('resized_xmax', None)
+                record.pop('resized_ymax', None)
+            else:
+                record['finding_categories'] = finding_cats
+                
+                # Process finding_birads (unless it's "No Finding")
+                if 'finding_birads' in record:
+                    record['finding_birads'] = parse_serialized_list(record['finding_birads'])
+                
+                # Process coordinates for bbox resizing
+                xmin_list = parse_coordinates(record.get('resized_xmin', []))
+                ymin_list = parse_coordinates(record.get('resized_ymin', []))
+                xmax_list = parse_coordinates(record.get('resized_xmax', []))
+                ymax_list = parse_coordinates(record.get('resized_ymax', []))
+                
+                # Validate/correct coordinates before resizing
+                xmin_list, ymin_list, xmax_list, ymax_list = validate_bbox_coordinates(
+                    xmin_list, ymin_list, xmax_list, ymax_list
+                )
+                
+                # Resize with aspect ratio preservation
+                res_xmin, res_ymin, res_xmax, res_ymax = resize_bbox_with_aspect_ratio(
+                    xmin_list, ymin_list, xmax_list, ymax_list,
+                    orig_width, orig_height, target_size
+                )
+                
+                # Store as native lists
+                record['resized_xmin'] = res_xmin
+                record['resized_ymin'] = res_ymin
+                record['resized_xmax'] = res_xmax
+                record['resized_ymax'] = res_ymax
+
+            # Add derived labels
+            record['healthy'] = 1 if record.get('breast_birads') == 'BI-RADS 1' else 0
+            record['has_cf'] = 0 if record.get('finding_categories') == 'No Finding' else 1
+        
+        output.append(record)
+    
+    return output
 
 if __name__ == "__main__":
     # Load data
     df_grouped = pd.read_csv("data/metadata/grouped_df.csv")
     print(f"Loaded {len(df_grouped)} images from grouped_df.csv")
+    
+    # Drop unnecessary columns
+    df_grouped.drop(columns=['Mass', 'Suspicious_Calcification'], errors='ignore', inplace=True)
+    
     print(f"Resizing bboxes from 1520×912 to 512×512...")
     
-    # Resize bounding boxes (Mammo-CLIP images were 1520×912)
-    df_resized = process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=512)
+    # Resize bounding boxes and prepare for JSON
+    data_list = process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=512)
     
-    # Save output
-    output_path = "data/metadata/resized_df_512.csv"
-    df_resized.to_csv(output_path, index=False)
+    # Save output as JSON
+    output_path = "data/metadata/resized_df_512.json"
+    with open(output_path, 'w') as f:
+        json.dump(data_list, f, indent=2)
     print(f"Saved resized bboxes to {output_path}")
+    print(f"Total records: {len(data_list)}")
+
