@@ -11,16 +11,8 @@ import json
 
 def parse_serialized_list(value):
     """Parse various malformed serialization formats to actual list."""
-    if value is None or pd.isna(value):
-        return []
-    
-    val_str = str(value).strip()
-    
-    if val_str in ['', '0', 'None', 'nan', '[]']:
-        return []
-    
     try:
-        parsed = ast.literal_eval(val_str)
+        parsed = ast.literal_eval(value)
         
         if isinstance(parsed, list):
             # Flatten nested lists and extract strings
@@ -44,25 +36,25 @@ def parse_serialized_list(value):
         return [str(parsed)]
     
     except:
+        print("Exception while parsing serialized list:", value)
         return []
 
 def parse_coordinates(value):
     """Parse string representation of list to actual list of ints."""
-    if pd.isna(value):
+    try:
+        if isinstance(value, list):
+            return [int(x) for x in value if x]
+        if isinstance(value, (int, float)):
+            return [int(value)] if value else []
+        
+        parsed = ast.literal_eval(value)
+        if isinstance(parsed, list):
+            return [int(x) for x in parsed if x]
+        return [int(parsed)]
+    except:
+        print("Exception while parsing coordinates:", value)
         return []
-    if isinstance(value, str):
-        try:
-            parsed = ast.literal_eval(value)
-            if isinstance(parsed, list):
-                return [int(x) for x in parsed if x]
-            return [int(parsed)]
-        except:
-            return []
-    if isinstance(value, list):
-        return [int(x) for x in value if x]
-    if isinstance(value, (int, float)):
-        return [int(value)] if value else []
-    return []
+    return [] # Other type
 
 def validate_bbox_coordinates(xmin_list, ymin_list, xmax_list, ymax_list):
     """
@@ -79,7 +71,7 @@ def validate_bbox_coordinates(xmin_list, ymin_list, xmax_list, ymax_list):
 
     for xmin, ymin, xmax, ymax in zip(xmin_list, ymin_list, xmax_list, ymax_list):
         if xmin > xmax:
-            xmin, xmax = xmax, xmin
+            xmin, xmax = xmax, xmin # Swap to correct order
         if ymin > ymax:
             ymin, ymax = ymax, ymin
 
@@ -133,10 +125,6 @@ def resize_bbox_with_aspect_ratio(xmin_list, ymin_list, xmax_list, ymax_list,
         xmax_padded = xmax_scaled + pad_w
         ymax_padded = ymax_scaled + pad_h
         
-        # Ensure valid ordering
-        xmin_padded, xmax_padded = min(xmin_padded, xmax_padded), max(xmin_padded, xmax_padded)
-        ymin_padded, ymax_padded = min(ymin_padded, ymax_padded), max(ymin_padded, ymax_padded)
-        
         # Clamp to target size
         xmin_padded = max(0, min(xmin_padded, target_size))
         ymin_padded = max(0, min(ymin_padded, target_size))
@@ -152,8 +140,7 @@ def resize_bbox_with_aspect_ratio(xmin_list, ymin_list, xmax_list, ymax_list,
 
 def process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=512):
     """
-    Resize bboxes in grouped_df from original dimensions to 512x512.
-    All images are 1520×912 originally.
+    Resize bboxes in grouped_df from 1520×912 to 512x512.
     Return list of dicts suitable for JSON output.
     """
     output = []
@@ -161,14 +148,15 @@ def process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=
     for idx, row in df_grouped.iterrows():
         record = row.to_dict()
         
-        # Remove fold for test split (no cross-validation needed)
+        # Remove fold for test split (no cross-validation with the test set)
         if record.get('split') == 'test':
             record.pop('fold', None)
         
         # Process finding_categories
         if 'finding_categories' in record:
+            # Remove unnecessary whitespaces and quotes
             finding_cats = parse_serialized_list(record['finding_categories'])
-            # Special case: if only "No Finding", use scalar string
+            # Special case: "No Finding"
             if finding_cats == ["No Finding"]:
                 record['finding_categories'] = "No Finding"
                 # Remove finding-related keys for "No Finding" records
