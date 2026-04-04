@@ -208,11 +208,11 @@ if __name__ == "__main__":
     df_grouped = pd.read_csv("data/metadata/grouped_df.csv")
     print(f"Loaded {len(df_grouped)} images from grouped_df.csv")
     
-    # Drop unnecessary columns
+    # Drop unnecessary columns and rename "training" split to "train"
     df_grouped.drop(columns=['Mass', 'Suspicious_Calcification'], errors='ignore', inplace=True)
+    df_grouped.loc[df_grouped['split'] == 'training', 'split'] = 'train'
     
     print(f"Resizing bboxes from 1520×912 to 512×512...")
-    
     # Resize bounding boxes and prepare for JSON
     data_list = process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=512)
     
