@@ -29,9 +29,9 @@ from tqdm import tqdm
 from src.config import DATASET_DIR, IMAGES_ROOT, METADATA_ROOT
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 from src.C_Dataset_Handlers.Inbreast_dataset import Inbreast_dataset
-from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
-from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
-from src.Classifiers.aux_scripts.utils import create_transforms
+from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
+from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
+from src.E_Aux_Scripts.utils import create_transforms
 
 
 def load_model(args, device):

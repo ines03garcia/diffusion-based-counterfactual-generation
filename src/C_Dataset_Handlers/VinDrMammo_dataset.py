@@ -1,16 +1,18 @@
 import os
 import json
+import logging
 from torch.utils.data import Dataset
 from PIL import Image
 
+logger = logging.getLogger(__name__)
+
 class VinDrMammo_dataset(Dataset):
-    def __init__(self, split=None, label=None, cf=False, cf_dir=None, cv_fold=0, data_dir=None, metadata_path=None, transform=None):
+    def __init__(self, split=None, label=None, cf_dir=None, cv_fold=0, data_dir=None, metadata_path=None, transform=None):
         """
         Args:
         - split: 'train', 'test', 'val' or None
         - label: 'all', 'healthy', 'anomalous', 'anomalous_with_findings' or None
-        - cf: whether to include counterfactuals
-        - cf_dir: counterfactuals directory
+        - cf_dir: counterfactuals directory or None if not using counterfactuals
         - cv_fold: validation fold (0, 1, 2, 3), the remaining are for training
         - data_dir: dataset directory
         - metadata_path: path to metadata JSON file
@@ -18,7 +20,6 @@ class VinDrMammo_dataset(Dataset):
         """
         self.split = split
         self.label = label
-        self.cf = cf
         self.cf_dir = cf_dir
         self.cv_fold = cv_fold
         self.data_dir = data_dir
@@ -37,45 +38,48 @@ class VinDrMammo_dataset(Dataset):
         # Load data
         self._load_data()
 
-        def _load_data(self):
-            # Filter data based on split
-            if self.split == "train":
-                records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("cv_fold") != self.cv_fold]
-            elif self.split == "val":
-                records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("cv_fold") == self.cv_fold]
-            elif self.split == "test":
-                records_filtered_by_split = [r for r in self.data if r.get("split") == "test"]
-            else: # None
-                records_filtered_by_split = self.data
+        logger.info(f"Loaded {len(self.image_paths)} samples (split: {self.split}, label: {self.label})")
+        logger.info(f"Class distribution: {sum(1 for l in self.labels if l==0)} healthy, {sum(1 for l in self.labels if l==1)} anomalous")
 
-            # Filer data based on label
-            if self.label == "all":
-                records_filtered_by_label = records_filtered_by_split
-            elif self.label == "healthy":
-                records_filtered_by_label = [r for r in records_filtered_by_split if r.get("healthy") == 1]
-            elif self.label == "anomalous":
-                records_filtered_by_label = [r for r in records_filtered_by_split if r.get("healthy") == 0]
-            elif self.label == "anomalous_with_findings":
-                records_filtered_by_label = [r for r in records_filtered_by_split if r.get("has_cf") == 1]
-            else: # None
-                records_filtered_by_label = []
-                print("Warning: No label label specified, original images will not be included.")
-                
-            # Add images paths, labels, and names
-            for item in records_filtered_by_label:
-                image_path = os.path.join(self.data_dir, item['image_id'])
-                self.image_paths.append(image_path)
-                self.labels.append(1 - item['healthy'])
-                self.image_ids.append(item['image_id'])
+    def _load_data(self):
+        # Filter data based on split
+        if self.split == "train":
+            records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("cv_fold") != self.cv_fold]
+        elif self.split == "val":
+            records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("cv_fold") == self.cv_fold]
+        elif self.split == "test":
+            records_filtered_by_split = [r for r in self.data if r.get("split") == "test"]
+        else: # None
+            records_filtered_by_split = self.data
 
-            if self.cf:
-                print("Adding counterfactuals...")
-                records_filtered_by_cf = [r for r in records_filtered_by_split if r.get("has_cf") == 1]
-                for item in records_filtered_by_cf:
-                    cf_image_path = os.path.join(self.cf_dir, item['image_id'])
-                    self.image_paths.append(cf_image_path)
-                    self.labels.append(0)
-                    self.image_ids.append(item['image_id']) # Same id as normal images, but different folder
+        # Filer data based on label
+        if self.label == "all":
+            records_filtered_by_label = records_filtered_by_split
+        elif self.label == "healthy":
+            records_filtered_by_label = [r for r in records_filtered_by_split if r.get("healthy") == 1]
+        elif self.label == "anomalous":
+            records_filtered_by_label = [r for r in records_filtered_by_split if r.get("healthy") == 0]
+        elif self.label == "anomalous_with_findings":
+            records_filtered_by_label = [r for r in records_filtered_by_split if r.get("has_cf") == 1]
+        else: # None
+            records_filtered_by_label = []
+            logger.warning("No label label specified, original images will not be included.")
+            
+        # Add images paths, labels, and names
+        for item in records_filtered_by_label:
+            image_path = os.path.join(self.data_dir, item['image_id'])
+            self.image_paths.append(image_path)
+            self.labels.append(1 - item['healthy'])
+            self.image_ids.append(item['image_id'])
+
+        if self.cf_dir:
+            logger.info("Adding counterfactuals...")
+            records_filtered_by_cf = [r for r in records_filtered_by_split if r.get("has_cf") == 1]
+            for item in records_filtered_by_cf:
+                cf_image_path = os.path.join(self.cf_dir, item['image_id'])
+                self.image_paths.append(cf_image_path)
+                self.labels.append(0)
+                self.image_ids.append(item['image_id']) # Same id as normal images, but different folder
         
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]

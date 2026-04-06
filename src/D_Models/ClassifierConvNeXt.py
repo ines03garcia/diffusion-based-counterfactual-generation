@@ -1,10 +1,14 @@
 import os
+import sys
 import logging
 import torch
 import torch.nn as nn
 from torchvision.models import convnext_base
 
-from src.config import MODELS_ROOT
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, PROJECT_ROOT)
+MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
+
 from src.E_Aux_Scripts.utils import check_internet_connection
 
 logger = logging.getLogger(__name__)
@@ -29,6 +33,7 @@ class ConvNeXtClassifier(nn.Module):
                 logger.info("No internet connection detected. Loading from local file...")
                 self._load_local_weights()
         else:
+            logger.info("Pretrained weights not requested, initializing model with random weights.")
             self.convnext = convnext_base(weights=None)
         
         # Replace the classifier head

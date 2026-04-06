@@ -4,7 +4,7 @@ import os.path as osp
 import datetime
 
 class Logger:
-    def __init__(self, experiment_type=None, sub_experiment_type=None, model_type=None, base_logs_path='data/logs', log_file='info.log', level=logging.INFO, to_console=True):
+    def __init__(self, experiment_type=None, sub_experiment_type=None, model_type=None, setup=None, base_logs_path='data/logs', log_file='info.log', level=logging.INFO, to_console=True):
         """
         Initialize logger with experiment-specific directory structure.
         
@@ -12,6 +12,7 @@ class Logger:
             experiment_type: Type of experiment ('DDPM', 'Classifiers' or 'Evaluation')
             sub_experiment_type: Type of sub-experiment ('train', 'test')
             model_type: Type of model being used (e.g., 'convnext', 'vit', 'fpn-mil')
+            setup: Type of setup (e.g., 'no_cf', 'cf', ...)
             base_logs_path: Base path for all logs (default: 'data/logs')
             log_file: Name of the log file (default: 'info.log')
             level: Logging level (default: logging.INFO)
@@ -22,9 +23,11 @@ class Logger:
         if experiment_type:
             experiment_log_dir = f"{experiment_type}"
             if sub_experiment_type:
-                experiment_log_dir = f"{experiment_log_dir}_{sub_experiment_type}"
+                experiment_log_dir = f"{experiment_log_dir}/{sub_experiment_type}"
             if model_type:
                 experiment_log_dir = f"{experiment_log_dir}_{model_type}"
+            if setup:
+                experiment_log_dir = f"{experiment_log_dir}/{setup}"
         else:
             experiment_log_dir = "Other"
 
@@ -36,17 +39,17 @@ class Logger:
         else:
             dir_name = f"local_{timestamp}"
 
-        log_dir = osp.join(
+        self.output_dir = osp.join(
             base_logs_path,
             experiment_log_dir,
             dir_name,
         )
         
-        log_dir = os.path.expanduser(log_dir)
-        os.makedirs(log_dir, exist_ok=True)
+        self.output_dir = os.path.expanduser(self.output_dir)
+        os.makedirs(self.output_dir, exist_ok=True)
         
         # Set up logger
-        target_path = os.path.abspath(os.path.join(log_dir, log_file))
+        target_path = os.path.abspath(os.path.join(self.output_dir, log_file))
         # Use a path-scoped logger name to avoid cross-talk between different runs.
         logger_name = f"ModelLogger:{target_path}"
         self.logger = logging.getLogger(logger_name)
@@ -85,10 +88,6 @@ class Logger:
     def info(self, message):
         """Log info level message"""
         self.logger.info(message)
-    
-    def warn(self, message):
-        """Log warning level message"""
-        self.logger.warning(message)
 
     def warning(self, message):
         """Log warning level message"""
