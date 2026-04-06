@@ -12,10 +12,10 @@ from torch.utils.data import DataLoader
 from src.config import DATASET_DIR, MODELS_ROOT, METADATA_ROOT, IMAGES_ROOT
 from src.Classifiers.aux_scripts.VinDrMammo_dataset import VinDrMammo_dataset
 from src.Classifiers.aux_scripts.plots_convnext import plot_training_metrics
-from src.Classifiers.aux_scripts import logger
-from src.Classifiers.aux_scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, unfreeze_layers
-from src.Classifiers.aux_scripts.ClassifierConvNeXt import ConvNeXtClassifier
-from src.Classifiers.aux_scripts.ClassifierVisionTransformer import VisionTransformerClassifier
+from src.E_Aux_Scripts import logger
+from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, unfreeze_layers
+from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
+from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
 
 def set_seed(seed):
     random.seed(seed)

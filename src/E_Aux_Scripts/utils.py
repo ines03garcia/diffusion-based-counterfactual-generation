@@ -5,7 +5,7 @@ import socket
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import tqdm
 
-from src.Classifiers.aux_scripts import logger
+from src.E_Aux_Scripts import logger
 
 
 def check_internet_connection(host="8.8.8.8", port=53, timeout=3):

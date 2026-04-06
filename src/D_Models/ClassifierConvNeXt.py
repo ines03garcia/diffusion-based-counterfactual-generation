@@ -5,7 +5,7 @@ import torch.nn as nn
 from torchvision.models import convnext_base
 
 from src.config import MODELS_ROOT
-from src.Classifiers.aux_scripts.utils import check_internet_connection
+from src.E_Aux_Scripts.utils import check_internet_connection
 
 logger = logging.getLogger(__name__)
 
