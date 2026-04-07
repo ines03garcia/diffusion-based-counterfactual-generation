@@ -193,7 +193,7 @@ def main():
         
         log.info(f"Frozen first {args.freeze_layers} layers of the {args.model_type} feature extractor")
     else:
-        log.info("No layers frozen - training all parameters from start")
+        log.info("No frozen layers: training all parameters from start")
     
     # Create optimizer with appropriate learning rates
     optimizer = create_optimizer(model, args, log)

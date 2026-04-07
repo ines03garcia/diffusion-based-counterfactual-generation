@@ -56,7 +56,10 @@ class Logger:
         self.logger.setLevel(level)
         self.logger.propagate = False
 
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%d-%m-%Y %H:%M:%S'
+        )
 
         file_handler_exists = any(
             isinstance(handler, logging.FileHandler) and

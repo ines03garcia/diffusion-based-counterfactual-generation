@@ -44,9 +44,9 @@ class VinDrMammo_dataset(Dataset):
     def _load_data(self):
         # Filter data based on split
         if self.split == "train":
-            records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("cv_fold") != self.cv_fold]
+            records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("fold") != self.cv_fold]
         elif self.split == "val":
-            records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("cv_fold") == self.cv_fold]
+            records_filtered_by_split = [r for r in self.data if r.get("split") == "train" and r.get("fold") == self.cv_fold]
         elif self.split == "test":
             records_filtered_by_split = [r for r in self.data if r.get("split") == "test"]
         else: # None

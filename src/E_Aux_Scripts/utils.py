@@ -18,11 +18,12 @@ def check_internet_connection(host="8.8.8.8", port=53, timeout=3):
         return False
 
 def create_transforms(augmentation_type="standard"):
-    """Create data transforms based on augmentation strategy"""
+    """Create data transforms based on augmentation strategy for "Classifier" tasks"""
     
     if augmentation_type == "none":
         # No augmentation - only basic preprocessing
         train_transform = transforms.Compose([
+            transforms.Lambda(lambda img: img.convert("RGB")),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalization values
@@ -30,6 +31,7 @@ def create_transforms(augmentation_type="standard"):
     else:
         # Standard data augmentation (and possibly with later on counterfactuals)
         train_transform = transforms.Compose([
+            transforms.Lambda(lambda img: img.convert("RGB")),
             transforms.Resize((224, 224)),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomRotation(degrees=15),
@@ -40,6 +42,7 @@ def create_transforms(augmentation_type="standard"):
     
     # Validation transform is always the same
     val_transform = transforms.Compose([
+        transforms.Lambda(lambda img: img.convert("RGB")),
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])

@@ -26,7 +26,6 @@ h5py
 nltk
 seaborn
 scikit-image
-pynvml
 omegaconf
 # For the Mammo-CLIP
 imgaug
