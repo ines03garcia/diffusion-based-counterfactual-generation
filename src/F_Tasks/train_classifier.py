@@ -17,9 +17,8 @@ METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
 IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
 
 from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
-#from src.Classifiers.aux_scripts.plots_convnext import plot_training_metrics
 from src.E_Aux_Scripts import logger
-from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, unfreeze_layers
+from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, unfreeze_layers, plot_training_metrics
 from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
 from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
 
@@ -188,6 +187,110 @@ def main():
         # Create optimizer with appropriate learning rates
         optimizer = create_optimizer(model, args, log)
 
+        classes_distribution = train_dataset.get_class_distribution()
+        if classes_distribution[1] > 0:
+            pos_weight = round(classes_distribution[0] / classes_distribution[1], 3)
+        else:
+            pos_weight = 1.0
+            log.warning("NO POSITIVE SAMPLES IN THE TRAINING SET!")
+        log.info(f"Class distribution in training set: {classes_distribution}, using pos_weight={pos_weight} for BCEWithLogitsLoss")
+        criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight)).to(device)
+        log.debug("Loss function created")
+
+        # Learning rate scheduler
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=args.epochs,
+            eta_min=args.lr * 0.01
+        )
+        log.debug("Learning rate scheduler created.")
+
+        # Initialization for training loop
+        start_epoch = 0
+        best_val_loss = float('inf')
+
+        # Resume from checkpoint if specified
+        if args.resume_from_checkpoint:
+            checkpoint_path = os.path.join(MODELS_ROOT, args.resume_from_checkpoint)
+            start_epoch, best_val_loss = resume_from_checkpoint(
+                checkpoint_path, model, optimizer, device
+            )
+
+        # Early stopping parameters
+        patience = args.patience
+        patience_counter = 0
+        log.info(f"Early stopping patience: {patience} epochs")
+        
+        # Training history
+        history = {
+            'train_loss': [], 'train_acc': [],
+            'train_f1': [],
+            'val_loss': [], 'val_f1': [],
+            'learning_rate': []
+        }
+
+        for epoch in range(start_epoch, args.epochs):
+            log.info(f"\n{'='*50}Epoch {epoch+1}/{args.epochs}{'='*50}")
+
+            # Gradual unfreezing
+            unfreeze_layers(model, epoch, args.epochs)
+            
+            # Train
+            train_loss, train_acc, train_f1 = train_epoch(model, train_loader, criterion, optimizer, device) # With fixed train threshold at 0.5
+            
+            # Validate
+            val_loss, val_f1, val_preds, val_targets = validate_epoch(
+                model, val_loader, criterion, device
+            )
+            
+            scheduler.step()
+
+            # Record history
+            history['train_loss'].append(train_loss)
+            history['train_acc'].append(train_acc)
+            history['train_f1'].append(train_f1)
+            history['val_loss'].append(val_loss)
+            history['val_f1'].append(val_f1)
+            history['learning_rate'].append(scheduler.get_last_lr()[0])
+            log.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, Train F1: {train_f1:.4f}")
+            log.info(f"Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}")
+            log.info(f"Current LR: {scheduler.get_last_lr()[0]:.2e}")
+
+            # Early stopping based on validation loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                
+                # Save best model
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'val_loss': val_loss,
+                    'args': vars(args)
+                }, os.path.join(output_dir, 'best_model.pth'))
+                
+                log.info(f"✓ New best model saved! Val Loss: {val_loss:.4f}")
+            else:
+                patience_counter += 1
+                log.info(f"No improvement. Patience: {patience_counter}/{patience}")
+                
+            if patience_counter >= patience:
+                log.info(f"Early stopping triggered after {epoch+1} epochs")
+                break
+        
+        # Save training history
+        with open(os.path.join(output_dir, 'training_history.json'), 'w') as f:
+            json.dump(history, f, indent=2)
+
+        # Create training metrics plots
+        if len(history['train_loss']) > 0:  # Only plot if we have training data
+            plot_training_metrics(history, output_dir)
+        
+        log.info(f"\n{'='*15}Training completed successfully!{'='*15}")
+        log.info(f"Best validation loss: {best_val_loss:.4f}")
+        log.info(f"Model and logs saved to: {output_dir}")
+
 
 def create_argparser():
     parser = argparse.ArgumentParser()
@@ -210,9 +313,10 @@ def create_argparser():
     parser.add_argument('--pretrained', action='store_true', default=True)
     parser.add_argument('--freeze_layers', type=int, default=6, help='Number of initial feature layers to freeze (0 = no freezing)')
     parser.add_argument('--augmentation_type', type=str, choices=['none', 'standard'], default="standard") # TO ADD: MIXUP
+    parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--seed', type=int, default=0)
     
-    # resume from checkpoint and debugging options not implemented yet
+    # debugging option not implemented yet
 
     return parser
 

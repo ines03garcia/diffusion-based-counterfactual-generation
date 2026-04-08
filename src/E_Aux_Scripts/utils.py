@@ -1,12 +1,13 @@
 import os
 import torch
+import logging
 import torchvision.transforms as transforms
 import socket
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
-from src.E_Aux_Scripts import logger
-
+logger = logging.getLogger(__name__)
 
 def check_internet_connection(host="8.8.8.8", port=53, timeout=3):
     """Check if internet connection is available"""
@@ -75,8 +76,9 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     
     epoch_loss = running_loss / len(dataloader)
     epoch_acc = accuracy_score(targets, predictions)
+    epoch_f1 = f1_score(targets, predictions, average='weighted', zero_division=0)
     
-    return epoch_loss, epoch_acc
+    return epoch_loss, epoch_acc, epoch_f1
 
 
 def validate_epoch(model, dataloader, criterion, device):
@@ -88,7 +90,7 @@ def validate_epoch(model, dataloader, criterion, device):
     
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Validation"):
-            images, labels, image_names = batch
+            images, labels, _ = batch
             images, labels = images.to(device), labels.to(device).float()
             
             outputs = model(images)
@@ -100,19 +102,16 @@ def validate_epoch(model, dataloader, criterion, device):
             targets.extend(labels.cpu().numpy())
     
     epoch_loss = running_loss / len(dataloader)
-    epoch_acc = accuracy_score(targets, predictions)
-    precision = precision_score(targets, predictions, average='weighted', zero_division=0)
-    recall = recall_score(targets, predictions, average='weighted', zero_division=0)
     f1 = f1_score(targets, predictions, average='weighted', zero_division=0)
     
-    return epoch_loss, epoch_acc, precision, recall, f1, predictions, targets
+    return epoch_loss, f1, predictions, targets
 
 
 def unfreeze_layers(model, epoch, total_epochs):
     """Gradually unfreeze layers during training"""
 
     if epoch == total_epochs // 4:  # Unfreeze after 25% of training
-        print("Unfreezing all feature layers...")
+        logger.info("Unfreezing all feature layers...")
         # Detect model type by checking attributes
         
         if hasattr(model, 'convnext'):
@@ -126,7 +125,7 @@ def unfreeze_layers(model, epoch, total_epochs):
                 param.requires_grad = True
     
     elif epoch == total_epochs // 2:  # Unfreeze everything after 50%
-        print("Unfreezing all layers...")
+        logger.info("Unfreezing all layers...")
         for param in model.parameters():
             param.requires_grad = True
 
@@ -135,10 +134,10 @@ def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
     """Load model and optimizer state from checkpoint"""
 
     if not os.path.exists(checkpoint_path):
-        logger.Logger.error(f"Checkpoint not found: {checkpoint_path}")
-        return 0, 0.0, float('inf')
+        logger.error(f"Checkpoint not found: {checkpoint_path}")
+        return 0, float('inf')
     
-    logger.Logger.info(f"Resuming from checkpoint: {checkpoint_path}")
+    logger.info(f"Resuming from checkpoint: {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
     # Load model state
@@ -149,9 +148,85 @@ def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
     
     # Get checkpoint info
     start_epoch = checkpoint['epoch'] + 1
-    best_val_acc = checkpoint.get('val_acc', 0.0)
     best_val_loss = checkpoint.get('val_loss', float('inf'))
     
-    logger.Logger.info(f"Resumed from epoch {checkpoint['epoch']}, best val acc: {best_val_acc:.4f}, best val loss: {best_val_loss:.4f}")
+    logger.info(f"Resumed from epoch {checkpoint['epoch']}, at path {checkpoint_path}, best val loss: {best_val_loss:.4f}")
     
-    return start_epoch, best_val_acc, best_val_loss
+    return start_epoch, best_val_loss
+
+def plot_training_metrics(history, exp_dir):
+    """Create and save plots showing training metrics evolution"""
+    plt.style.use('default')
+    
+    # Keep only loss and F1 (train + validation) visualizations
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle(f'Training Metrics Evolution', fontsize=16, fontweight='bold')
+    
+    epochs = range(1, len(history['train_loss']) + 1)
+    
+    # Plot 1: Loss
+    axes[0].plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
+    axes[0].plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+    axes[0].set_title('Training and Validation Loss', fontweight='bold')
+    axes[0].set_xlabel('Epochs')
+    axes[0].set_ylabel('Loss')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    # Plot 2: F1
+    if 'train_f1' in history:
+        axes[1].plot(epochs, history['train_f1'], 'b-', label='Training F1', linewidth=2)
+    axes[1].plot(epochs, history['val_f1'], 'g-', label='Validation F1', linewidth=2)
+    axes[1].set_title('Training and Validation F1 Score', fontweight='bold')
+    axes[1].set_xlabel('Epochs')
+    axes[1].set_ylabel('F1 Score')
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    axes[1].set_ylim(0, 1)
+    
+    plt.tight_layout()
+    
+    # Save the plot
+    plot_path = os.path.join(exp_dir, 'training_metrics.png')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Training metrics plot saved to: {plot_path}")
+    
+    # Also create individual plots for each metric
+    create_individual_plots(history, exp_dir)
+    
+    plt.close(fig)  # Close to free memory
+
+
+def create_individual_plots(history, exp_dir):
+    """Create individual plots for each metric"""
+    epochs = range(1, len(history['train_loss']) + 1)
+    
+    # Individual Loss plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
+    plt.plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+    plt.title(f'Loss Evolution', fontweight='bold', fontsize=14)
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_dir, 'loss_evolution.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Individual F1 plot
+    plt.figure(figsize=(10, 6))
+    if 'train_f1' in history:
+        plt.plot(epochs, history['train_f1'], 'b-', label='Training F1 Score', linewidth=2)
+    plt.plot(epochs, history['val_f1'], 'g-', label='Validation F1 Score', linewidth=2)
+    plt.title(f'F1 Score Evolution', fontweight='bold', fontsize=14)
+    plt.xlabel('Epochs')
+    plt.ylabel('F1 Score')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.ylim(0, 1)
+    plt.tight_layout()
+    plt.savefig(os.path.join(exp_dir, 'f1_evolution.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    logger.info(f"Individual metric plots saved to: {exp_dir}")

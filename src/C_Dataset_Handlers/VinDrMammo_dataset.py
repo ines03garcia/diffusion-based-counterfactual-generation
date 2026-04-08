@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import numpy as np
 from torch.utils.data import Dataset
 from PIL import Image
 
@@ -97,5 +98,11 @@ class VinDrMammo_dataset(Dataset):
     
     def __len__(self):
         return len(self.image_paths)
+    
+    def get_class_distribution(self):
+        """Get the distribution of classes in the current split"""
+        unique, counts = np.unique(self.labels, return_counts=True)
+        distribution = dict(zip(unique, counts))
+        return distribution
         
         
