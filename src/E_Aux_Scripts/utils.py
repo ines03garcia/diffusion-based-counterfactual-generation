@@ -18,19 +18,27 @@ def check_internet_connection(host="8.8.8.8", port=53, timeout=3):
     except socket.error:
         return False
 
-def create_transforms(augmentation_type="standard"):
-    """Create data transforms based on augmentation strategy for "Classifier" tasks"""
-    
+def create_transforms(
+    augmentation_type="standard",
+    model_type="convnext",
+):
+    """Create classifier transforms for ImageNet-based models and Mammo-CLIP."""
+    if model_type == "mammo-clip": # Mammo-CLIP (UPMC) specific values
+        normalize = transforms.Normalize(mean=[0.3089279, 0.3089279, 0.3089279], std=[0.25053555408335154, 0.25053555408335154, 0.25053555408335154])
+    else: # ImageNet values
+        normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], 
+            std=[0.229, 0.224, 0.225],
+        )
+
     if augmentation_type == "none":
-        # No augmentation - only basic preprocessing
         train_transform = transforms.Compose([
             transforms.Lambda(lambda img: img.convert("RGB")),
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalization values
+            normalize,
         ])
     else:
-        # Standard data augmentation (and possibly with later on counterfactuals)
         train_transform = transforms.Compose([
             transforms.Lambda(lambda img: img.convert("RGB")),
             transforms.Resize((224, 224)),
@@ -38,17 +46,16 @@ def create_transforms(augmentation_type="standard"):
             transforms.RandomRotation(degrees=15),
             transforms.ColorJitter(brightness=0.2, contrast=0.2),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            normalize,
         ])
-    
-    # Validation transform is always the same
+
     val_transform = transforms.Compose([
         transforms.Lambda(lambda img: img.convert("RGB")),
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        normalize,
     ])
-    
+
     return train_transform, val_transform
 
 
@@ -61,10 +68,10 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     
     for batch in tqdm(dataloader, desc="Training"):
         images, labels, _ = batch
-        images, labels = images.to(device), labels.to(device).float()
+        images, labels = images.to(device), labels.to(device).float().view(-1)
         
         optimizer.zero_grad()
-        outputs = model(images)
+        outputs = model(images).view(-1)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -91,9 +98,9 @@ def validate_epoch(model, dataloader, criterion, device):
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Validation"):
             images, labels, _ = batch
-            images, labels = images.to(device), labels.to(device).float()
+            images, labels = images.to(device), labels.to(device).float().view(-1)
             
-            outputs = model(images)
+            outputs = model(images).view(-1)
             loss = criterion(outputs, labels)
             
             running_loss += loss.item()

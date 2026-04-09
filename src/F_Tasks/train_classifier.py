@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
+
 MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
 METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
 IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
@@ -19,6 +20,7 @@ from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
 from src.E_Aux_Scripts import logger
 from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, unfreeze_layers, plot_training_metrics
 from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
+from src.D_Models.MammoCLIP.Classifiers.models.breast_clip_classifier import BreastClipClassifier, MammoClipInputAdapter
 from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
 
 def set_seed(seed):
@@ -31,6 +33,7 @@ def seed_worker(args, worker_id):
     worker_seed = args.seed + worker_id
     np.random.seed(worker_seed)
     random.seed(worker_seed)
+
 
 def create_optimizer(model, args, log):
     """
@@ -90,8 +93,14 @@ def main():
     log.info(f"Using device [{device}] to train model [{args.model_type}] on dataset [{args.dataset}] with [{'counterfactual augmentation' if args.use_counterfactuals else 'no counterfactuals'}] and [{'cross-validation' if args.cross_validation else 'no cross-validation'}].\n")
 
     # Create transforms
-    train_transform, val_transform = create_transforms(args.augmentation_type)
-    log.info(f"Using augmentation type: {args.augmentation_type}") # To add - Mixup
+    train_transform, val_transform = create_transforms(
+        augmentation_type=args.augmentation_type,
+        model_type=args.model_type
+    )
+    if args.model_type == "mammo-clip":
+        log.info("Using Mammo-CLIP transforms with checkpoint-aligned default normalization")
+    else:
+        log.info(f"Using augmentation type: {args.augmentation_type}") # To add - Mixup
     log.debug(f"Train transforms: {train_transform}")
     log.debug(f"Validation transforms: {val_transform}")
 
@@ -168,8 +177,12 @@ def main():
             ).to(device)
             log.info("ViT model created and moved to device")
         elif args.model_type == "mammo-clip":
-            print("NOT IMPLEMENTED YET")
-            exit(1)
+            clip_ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
+            base_model = BreastClipClassifier(args, ckpt=clip_ckpt, n_class=1)
+            model = MammoClipInputAdapter(base_model).to(device)
+            log.info(
+                f"Mammo-CLIP model created and moved to device using image encoder type [{base_model.get_image_encoder_type()}]"
+            )
         elif args.model_type == "fpn-mil":
             print("NOT IMPLEMENTED YET")
             exit(1)
@@ -177,7 +190,9 @@ def main():
             raise ValueError(f"Unsupported model type: {args.model_type}")
         
         # Freeze initial feature layers/encoder blocks
-        if args.freeze_layers > 0:
+        if args.model_type == "mammo-clip":
+            log.info("Mammo-CLIP controls freezing through args.arch; skipping manual freeze_layers handling")
+        elif args.freeze_layers > 0:
             frozen_count = 0
 
             if args.model_type == "convnext":
@@ -244,7 +259,8 @@ def main():
             log.info(f"\n{'='*15}Epoch {epoch+1}/{args.epochs}{'='*15}")
 
             # Gradual unfreezing
-            unfreeze_layers(model, epoch, args.epochs)
+            if args.model_type != "mammo-clip":
+                unfreeze_layers(model, epoch, args.epochs)
             
             # Train
             train_loss, train_acc, train_f1 = train_epoch(model, train_loader, criterion, optimizer, device) # With fixed train threshold at 0.5
@@ -327,7 +343,8 @@ def create_argparser():
     parser.add_argument('--augmentation_type', type=str, choices=['none', 'standard'], default="standard") # TO ADD: MIXUP
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--seed', type=int, default=0)
-    
+    parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
+    parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
     # debugging option not implemented yet
 
     return parser
