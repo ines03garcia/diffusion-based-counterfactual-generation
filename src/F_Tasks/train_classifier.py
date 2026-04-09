@@ -1,6 +1,5 @@
 import argparse
 import json
-import logging
 import os
 import sys
 import random
@@ -75,7 +74,9 @@ def main():
     args = create_argparser().parse_args()
     set_seed(args.seed)
     
-    log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=f"{'with_cf' if args.use_counterfactuals else 'no_cf'}")
+    setup = f"{'with_cf' if args.use_counterfactuals else 'no_cf'}"
+    setup += f"_cv" if args.cross_validation else ""
+    log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=setup)
     log.info(f"Logs will be saved to: {log.output_dir}")
     
     # Save arguments
@@ -97,15 +98,25 @@ def main():
     # Log info
     if args.cross_validation:
         log.info("Performing cross-validation: val fold will start at 0, and the model will be trained and evaluated on each fold sequentially.")
-        print("NOT IMPLEMENTED YET")
-        exit(1)
+        folds = 4
     else:
+        folds = 1
+    
+    for fold in range(folds):
+        if args.cross_validation:
+            log.info(f"\n{'#'*15} Starting training for fold {fold} {'#'*15}")
+            results_dir = os.path.join(output_dir, f"fold_{fold}")
+            os.makedirs(results_dir, exist_ok=True)
+        else:
+            log.info(f"\n{'#'*15} Starting training without cross-validation {'#'*15}")
+            results_dir = output_dir
+
         # Create datasets using the updated VinDrMammo_dataset class
         train_dataset = VinDrMammo_dataset(
             split="train",
             label=args.training_category,
             cf_dir=args.cf_dir if args.use_counterfactuals else None,
-            cv_fold=0,
+            cv_fold=fold,
             data_dir=args.data_dir,
             metadata_path=args.metadata_path,
             transform=train_transform,
@@ -117,7 +128,7 @@ def main():
             split="val",
             label=args.training_category,
             cf_dir=None, # Exclude cf from validation
-            cv_fold=0,
+            cv_fold=fold,
             data_dir=args.data_dir,
             metadata_path=args.metadata_path,
             transform=val_transform,
@@ -210,7 +221,7 @@ def main():
         best_val_loss = float('inf')
 
         # Resume from checkpoint if specified
-        if args.resume_from_checkpoint:
+        if args.resume_from_checkpoint and fold == 0:  # Only resume for the first fold if doing cross-validation
             checkpoint_path = os.path.join(MODELS_ROOT, args.resume_from_checkpoint)
             start_epoch, best_val_loss = resume_from_checkpoint(
                 checkpoint_path, model, optimizer, device
@@ -230,7 +241,7 @@ def main():
         }
 
         for epoch in range(start_epoch, args.epochs):
-            log.info(f"\n{'='*50}Epoch {epoch+1}/{args.epochs}{'='*50}")
+            log.info(f"\n{'='*15}Epoch {epoch+1}/{args.epochs}{'='*15}")
 
             # Gradual unfreezing
             unfreeze_layers(model, epoch, args.epochs)
@@ -262,15 +273,16 @@ def main():
                 patience_counter = 0
                 
                 # Save best model
+                save_path = os.path.join(results_dir, 'best_model.pth')
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'val_loss': val_loss,
                     'args': vars(args)
-                }, os.path.join(output_dir, 'best_model.pth'))
+                }, save_path)
                 
-                log.info(f"✓ New best model saved! Val Loss: {val_loss:.4f}")
+                log.info(f"New best model saved. Val Loss: {val_loss:.4f}")
             else:
                 patience_counter += 1
                 log.info(f"No improvement. Patience: {patience_counter}/{patience}")
@@ -280,16 +292,16 @@ def main():
                 break
         
         # Save training history
-        with open(os.path.join(output_dir, 'training_history.json'), 'w') as f:
+        with open(os.path.join(results_dir, 'training_history.json'), 'w') as f:
             json.dump(history, f, indent=2)
 
         # Create training metrics plots
         if len(history['train_loss']) > 0:  # Only plot if we have training data
-            plot_training_metrics(history, output_dir)
+            plot_training_metrics(history, results_dir)
         
         log.info(f"\n{'='*15}Training completed successfully!{'='*15}")
         log.info(f"Best validation loss: {best_val_loss:.4f}")
-        log.info(f"Model and logs saved to: {output_dir}")
+        log.info(f"Model and logs saved to: {results_dir}")
 
 
 def create_argparser():
