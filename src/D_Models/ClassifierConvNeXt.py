@@ -51,6 +51,22 @@ class ConvNeXtClassifier(nn.Module):
             logger.info(f"Loaded pretrained weights from {weights_path}")
         else:
             raise ValueError(f"Local weights not found at {weights_path}")
+        
+    def freeze_layers(self, freeze_layers=0):
+        """Freeze the first layers of the model"""
+        for param in self.convnext.features[:freeze_layers].parameters():
+            param.requires_grad = False
+
+    def unfreeze_layers(self, current_epoch, total_epochs):
+        """Gradually unfreeze layers based on current epoch"""
+        if current_epoch == total_epochs // 4:  # Unfreeze after 25% of training
+            logger.info("Unfreezing feature layers...")
+            for param in self.convnext.features.parameters():
+                param.requires_grad = True
+        elif current_epoch == total_epochs // 2:  # Unfreeze after 50% of training
+            logger.info("Unfreezing all layers...")
+            for param in self.convnext.parameters():
+                param.requires_grad = True
     
     def forward(self, x):
         if self.grad_cam:

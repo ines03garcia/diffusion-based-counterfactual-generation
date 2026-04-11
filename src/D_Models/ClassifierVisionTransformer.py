@@ -48,6 +48,22 @@ class VisionTransformerClassifier(nn.Module):
         else:
             raise ValueError(f"Local weights not found at {weights_path}. "
                            f"Please download them manually or ensure internet connectivity.")
+        
+    def freeze_layers(self, freeze_layers=0):
+        """Freeze the first layers of the model"""
+        for param in self.vit.encoder.layers[:freeze_layers].parameters():
+            param.requires_grad = False
+
+    def unfreeze_layers(self, current_epoch, total_epochs):
+        """Gradually unfreeze layers based on current epoch"""
+        if current_epoch == total_epochs // 4:  # Unfreeze after 25% of training
+            logger.info("Unfreezing feature layers...")
+            for param in self.vit.encoder.layers.parameters():
+                param.requires_grad = True
+        elif current_epoch == total_epochs // 2:  # Unfreeze after 50% of training
+            logger.info("Unfreezing all layers...")
+            for param in self.vit.parameters():
+                param.requires_grad = True
     
     def forward(self, x):
         if self.grad_cam:

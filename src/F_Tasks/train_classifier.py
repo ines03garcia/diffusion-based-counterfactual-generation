@@ -18,9 +18,9 @@ IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
 
 from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
 from src.E_Aux_Scripts import logger
-from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, unfreeze_layers, plot_training_metrics
+from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, plot_training_metrics
 from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
-from src.D_Models.MammoCLIP.Classifiers.models.breast_clip_classifier import BreastClipClassifier, MammoClipInputAdapter
+from src.D_Models.MammoCLIP.Classifiers.model.breast_clip_classifier import BreastClipClassifier, MammoClipInputAdapter
 from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
 
 def set_seed(seed):
@@ -34,6 +34,31 @@ def seed_worker(args, worker_id):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
+def build_model(args, log, device):
+    if args.model_type == "convnext":
+        model = ConvNeXtClassifier(
+            num_classes=1,
+            pretrained=args.pretrained
+        ).to(device)
+        log.info("ConvNeXt model created and moved to device")
+    elif args.model_type == "vit":
+        model = VisionTransformerClassifier(
+            num_classes=1,
+            pretrained=args.pretrained
+        ).to(device)
+        log.info("ViT model created and moved to device")
+    elif args.model_type == "mammo-clip":
+        clip_ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
+        base_model = BreastClipClassifier(args, ckpt=clip_ckpt, n_class=1)
+        model = MammoClipInputAdapter(base_model).to(device)
+        log.info(
+            f"Mammo-CLIP model created and moved to device using image encoder type [{base_model.get_image_encoder_type()}]"
+        )
+    elif args.model_type == "fpn-mil":
+        raise NotImplementedError("FPN-MIL model not implemented yet")
+    else:
+        raise ValueError(f"Unsupported model type: {args.model_type}")
+    return model
 
 def create_optimizer(model, args, log):
     """
@@ -165,48 +190,11 @@ def main():
         log.info(f"Using batch size {args.batch_size} and {args.num_workers} workers.")
 
         # Create model
-        if args.model_type == "convnext":
-            model = ConvNeXtClassifier(
-                num_classes=1,
-                pretrained=args.pretrained
-            ).to(device)
-            log.info("ConvNeXt model created and moved to device")
-        elif args.model_type == "vit":
-            model = VisionTransformerClassifier(
-                num_classes=1,
-                pretrained=args.pretrained
-            ).to(device)
-            log.info("ViT model created and moved to device")
-        elif args.model_type == "mammo-clip":
-            clip_ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
-            base_model = BreastClipClassifier(args, ckpt=clip_ckpt, n_class=1)
-            model = MammoClipInputAdapter(base_model).to(device)
-            log.info(
-                f"Mammo-CLIP model created and moved to device using image encoder type [{base_model.get_image_encoder_type()}]"
-            )
-        elif args.model_type == "fpn-mil":
-            print("NOT IMPLEMENTED YET")
-            exit(1)
-        else:
-            raise ValueError(f"Unsupported model type: {args.model_type}")
+        model = build_model(args, log, device)
         
         # Freeze initial feature layers/encoder blocks
-        if args.model_type == "mammo-clip":
-            log.info("Mammo-CLIP controls freezing through args.arch; skipping manual freeze_layers handling")
-        elif args.freeze_layers > 0:
-            frozen_count = 0
-
-            if args.model_type == "convnext":
-                for param in model.convnext.features[:args.freeze_layers].parameters():
-                    param.requires_grad = False
-                    frozen_count += 1
-            
-            elif args.model_type == "vit":
-                for i, block in enumerate(model.vit.encoder.layers[:args.freeze_layers]):
-                    for param in block.parameters():
-                        param.requires_grad = False
-                        frozen_count += 1
-            
+        if args.freeze_layers > 0:
+            model.freeze_layers(args.freeze_layers)
             log.info(f"Frozen first {args.freeze_layers} layers of the {args.model_type} feature extractor")
         else:
             log.info("No frozen layers: training all parameters from start")
@@ -260,9 +248,9 @@ def main():
             log.info(f"\n{'='*15}Epoch {epoch+1}/{args.epochs}{'='*15}")
 
             # Gradual unfreezing
-            if args.model_type != "mammo-clip":
-                unfreeze_layers(model, epoch, args.epochs)
-            
+            if epoch == args.epochs // 4 or epoch == args.epochs // 2:  # Unfreeze after 25% and 50% of training
+                model.unfreeze_layers(epoch, args.epochs)
+
             # Train
             train_loss, train_acc, train_f1 = train_epoch(model, train_loader, criterion, optimizer, device) # With fixed train threshold at 0.5
             

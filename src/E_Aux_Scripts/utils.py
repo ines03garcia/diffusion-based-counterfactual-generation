@@ -114,29 +114,6 @@ def validate_epoch(model, dataloader, criterion, device):
     return epoch_loss, f1, predictions, targets
 
 
-def unfreeze_layers(model, epoch, total_epochs):
-    """Gradually unfreeze layers during training"""
-
-    if epoch == total_epochs // 4:  # Unfreeze after 25% of training
-        logger.info("Unfreezing all feature layers...")
-        # Detect model type by checking attributes
-        
-        if hasattr(model, 'convnext'):
-            # ConvNeXt model
-            for param in model.convnext.features.parameters():
-                param.requires_grad = True
-        
-        elif hasattr(model, 'vit'):
-            # ViT model
-            for param in model.vit.encoder.parameters():
-                param.requires_grad = True
-    
-    elif epoch == total_epochs // 2:  # Unfreeze everything after 50%
-        logger.info("Unfreezing all layers...")
-        for param in model.parameters():
-            param.requires_grad = True
-
-
 def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
     """Load model and optimizer state from checkpoint"""
 
