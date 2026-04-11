@@ -8,6 +8,7 @@ Preprocess metadata:
 import pandas as pd
 import ast
 import json
+import os
 
 def parse_serialized_list(value):
     """Parse various malformed serialization formats to actual list."""
@@ -144,6 +145,13 @@ def process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=
     Return list of dicts suitable for JSON output.
     """
     output = []
+    cf_dir = "data/images/repaint_results"
+    cf_image_ids = set()
+    if os.path.isdir(cf_dir):
+        cf_image_ids = {
+            name for name in os.listdir(cf_dir)
+            if name.lower().endswith((".png"))
+        }
     
     for idx, row in df_grouped.iterrows():
         record = row.to_dict()
@@ -197,7 +205,10 @@ def process_dataframe(df_grouped, orig_width=1520, orig_height=912, target_size=
 
             # Add derived labels
             record['healthy'] = 1 if record.get('breast_birads') == 'BI-RADS 1' else 0
-            record['has_cf'] = 0 if record.get('finding_categories') == 'No Finding' else 1
+            if record.get('finding_categories') != 'No Finding' and record['image_id'] in cf_image_ids:
+                record['has_cf'] = 1
+            else:
+                record['has_cf'] = 0
         
         output.append(record)
     

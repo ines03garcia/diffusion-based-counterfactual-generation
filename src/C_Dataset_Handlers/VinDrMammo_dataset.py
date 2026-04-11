@@ -74,7 +74,6 @@ class VinDrMammo_dataset(Dataset):
             self.image_ids.append(item['image_id'])
 
         if self.cf_dir:
-            logger.info("Adding counterfactuals...")
             records_filtered_by_cf = [r for r in records_filtered_by_split if r.get("has_cf") == 1]
             for item in records_filtered_by_cf:
                 cf_image_path = os.path.join(self.cf_dir, item['image_id'])
@@ -84,6 +83,7 @@ class VinDrMammo_dataset(Dataset):
                 self.image_paths.append(cf_image_path)
                 self.labels.append(0)
                 self.image_ids.append(item['image_id']) # Same id as normal images, but different folder
+            logger.info(f"Added {len(records_filtered_by_cf)} counterfactual samples to the {self.split} split.")
         
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
