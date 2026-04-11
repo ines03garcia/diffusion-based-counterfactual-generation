@@ -85,5 +85,11 @@ class MammoClipInputAdapter(nn.Module):
 
         return images
 
+    def freeze_layers(self, freeze_layers=0):
+        return self.base_model.freeze_layers(freeze_layers)
+
+    def unfreeze_layers(self, current_epoch, total_epochs):
+        return self.base_model.unfreeze_layers(current_epoch, total_epochs)
+
     def forward(self, images):
         return self.base_model(self._prepare_inputs(images))
