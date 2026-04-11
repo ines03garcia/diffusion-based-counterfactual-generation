@@ -80,6 +80,7 @@ def main():
     setup = f"{'with_cf' if args.use_counterfactuals else 'no_cf'}"
     setup += f"_cv" if args.cross_validation else ""
     log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=setup)
+    log.configure_root_logger()
     log.info(f"Logs will be saved to: {log.output_dir}")
     
     # Save arguments

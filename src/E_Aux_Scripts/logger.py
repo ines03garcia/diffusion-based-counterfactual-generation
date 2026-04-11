@@ -84,6 +84,38 @@ class Logger:
                 stream_handler.setFormatter(formatter)
                 self.logger.addHandler(stream_handler)
 
+    def configure_root_logger(self, include_console=True):
+        """Attach this run's handlers to the root logger once.
+
+        Call this at application startup so module-level loggers
+        (logging.getLogger(__name__)) are written to the same log file.
+        """
+        root_logger = logging.getLogger()
+        root_logger.setLevel(self.logger.level)
+
+        # Reuse this logger's file handlers so all messages end up in one file.
+        for handler in self.logger.handlers:
+            if isinstance(handler, logging.FileHandler):
+                same_path_exists = any(
+                    isinstance(h, logging.FileHandler)
+                    and os.path.abspath(getattr(h, 'baseFilename', ''))
+                    == os.path.abspath(getattr(handler, 'baseFilename', ''))
+                    for h in root_logger.handlers
+                )
+                if not same_path_exists:
+                    root_logger.addHandler(handler)
+
+        if include_console:
+            stream_exists = any(
+                isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+                for h in root_logger.handlers
+            )
+            if not stream_exists:
+                for handler in self.logger.handlers:
+                    if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                        root_logger.addHandler(handler)
+                        break
+
     def debug(self, message):
         """Log debug level message"""
         self.logger.debug(message)

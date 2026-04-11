@@ -78,6 +78,9 @@ class VinDrMammo_dataset(Dataset):
             records_filtered_by_cf = [r for r in records_filtered_by_split if r.get("has_cf") == 1]
             for item in records_filtered_by_cf:
                 cf_image_path = os.path.join(self.cf_dir, item['image_id'])
+                if not os.path.exists(cf_image_path):
+                    logger.warning(f"Counterfactual image not found: {cf_image_path}, skipping.")
+                    continue
                 self.image_paths.append(cf_image_path)
                 self.labels.append(0)
                 self.image_ids.append(item['image_id']) # Same id as normal images, but different folder
