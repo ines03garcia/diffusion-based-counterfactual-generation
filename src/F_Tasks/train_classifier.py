@@ -20,8 +20,9 @@ from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
 from src.E_Aux_Scripts import logger
 from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, plot_training_metrics
 from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
-from src.D_Models.MammoCLIP.Classifiers.model.breast_clip_classifier import BreastClipClassifier, MammoClipInputAdapter
 from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
+from src.D_Models.MammoCLIP.Classifiers.model.breast_clip_classifier import BreastClipClassifier, MammoClipInputAdapter
+from src.D_Models.FPN_MIL.MIL import build_model as build_mil_model, FpnMilInputAdapter
 
 def set_seed(seed):
     random.seed(seed)
@@ -55,7 +56,10 @@ def build_model(args, log, device):
             f"Mammo-CLIP model created and moved to device using image encoder type [{base_model.get_image_encoder_type()}]"
         )
     elif args.model_type == "fpn-mil":
-        raise NotImplementedError("FPN-MIL model not implemented yet")
+        args.train = True
+        base_model = build_mil_model(args)
+        model = FpnMilInputAdapter(base_model).to(device)
+        log.info("FPN-MIL model created and moved to device")
     else:
         raise ValueError(f"Unsupported model type: {args.model_type}")
     return model
@@ -332,8 +336,56 @@ def create_argparser():
     parser.add_argument('--augmentation_type', type=str, choices=['none', 'standard'], default="standard") # TO ADD: MIXUP
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--seed', type=int, default=0)
+    
+    # Mammo-CLIP
     parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
     parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
+    
+    # FPN-MIL: Patch extraction 
+    parser.add_argument("--fpn_clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b2-model-best-epoch-10.tar"), type=str, help="Path to FPN-MIL CLIP chkpt")
+    parser.add_argument("--img-size", default=[512, 512], type=int, nargs='*')
+    parser.add_argument("--feature_extraction", default = 'online', type = str) 
+    parser.add_argument("--feat_dim", default = 352, type = int) 
+    parser.add_argument('--patching', action = 'store_true', default = True, help = 'Wether to perform patching on full-resolution images. If false, it will consider previously extracted patches that were saved in a directory (default: False)')
+    parser.add_argument('--source_image', type = str, default = 'patches', choices = ['patches', 'full_image'])
+    parser.add_argument('--patch_size', type = int, default = 128) 
+    parser.add_argument('--overlap', type = float, nargs='*',  default=[0.0])
+    
+    # FPN-MIL: MIL model parameters
+    parser.add_argument('--mil_type', default='pyramidal_mil', choices=[None, 'instance', 'embedding', 'pyramidal_mil'], type=str, help="MIL approach")
+    parser.add_argument('--pooling_type', default='gated-attention', choices=['max', 'mean', 'attention', 'gated-attention', 'pma'], type=str, help="MIL pooling operator")
+    parser.add_argument('--type_mil_encoder', default='mlp', choices=['mlp', 'sab', 'isab'], type=str, help="Type of MIL encoder.")
+    parser.add_argument('--fcl_attention_dim', type=int, default=128, metavar='N', help='parameter for attention (internal hidden units)')
+    parser.add_argument('--map_prob_func', type=str, default = 'softmax', choices = ['softmax', 'sparsemax', 'entmax', 'alpha_entmax'])
+    parser.add_argument('--fcl_encoder_dim', type=int, default=256, help='parameter for set transformer (internal hidden units)')
+    parser.add_argument('--sab_num_heads', type=int, default=4, help='parameter for set transformer (number of self-attention heads in set attention blocks)')
+    parser.add_argument('--isab_num_heads', type=int, default=4, help='parameter for set transformer (number of self-attention heads in induced set attention blocks)')
+    parser.add_argument('--pma_num_heads', type=int, default=1, help='parameter for set transformer (number of self-attention heads in pooling by multihead attention)')
+    parser.add_argument('--num_encoder_blocks', type=int, default=2, help='parameter for set transformer (number of encoder layers)')
+    parser.add_argument('--trans_num_inds', type=int, default=20, help='parameter for set transformer (number of inducing points for the ISAB)')
+    parser.add_argument('--trans_layer_norm', type=bool, default=False)
+
+    # FPN-MIL: Multi-scale MIL
+    parser.add_argument('--multi_scale_model', type=str, choices = ['fpn', 'backbone_pyramid', 'msp'], default = 'fpn') 
+    parser.add_argument('--scales', type=int,  nargs='*',  default=(16, 32, 128), help="List of scales to use for the multi-scale model.")
+    parser.add_argument('--fpn_dim', type=int, default=256)
+    parser.add_argument('--upsample_method', type = str, choices = ['bilinear', 'nearest'], default = 'nearest')
+    parser.add_argument('--norm_fpn', type = bool, default = False)
+    parser.add_argument('--deep_supervision', action='store_true', default=True)
+    parser.add_argument('--type_scale_aggregator', type=str, choices = ['concatenation', 'max_p', 'mean_p','attention', 'gated-attention'], default='gated-attention')
+
+    # FPN-MIL: Regularization parameters
+    parser.add_argument('--drop_classhead', type=float, default=0.0, metavar='PCT', help='Dropout rate used in the classification head (default: 0.)')
+    parser.add_argument('--drop_attention_pool', type=float, default=0.0, metavar='PCT', help='Dropout rate used in the attention pooling mechanism (default: 0.)')
+    parser.add_argument('--drop_mha', type=float, default=0.0, metavar='PCT', help='Dropout rate used in the attention pooling mechanism (default: 0.)')
+    parser.add_argument('--fcl_dropout', type=float, default=0.0)
+    parser.add_argument("--lamda", type=float, default=0.0,
+                        help='lambda used for balancing cross-entropy loss and rank loss.')
+    
+    # FPN-MIL: Nested MIL 
+    parser.add_argument('--nested_model', action='store_true', default=False)
+    
+    
     # debugging option not implemented yet
 
     return parser
