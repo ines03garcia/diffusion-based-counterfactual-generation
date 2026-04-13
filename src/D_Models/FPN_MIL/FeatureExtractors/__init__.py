@@ -15,7 +15,7 @@ def Define_Feature_Extractor(args) -> Union[nn.Module, int]:
     """
 
     # Load CLIP checkpoint containing pretrained image encoder and config
-    ckpt = torch.load(args.fpn_clip_chk_pt_path, map_location="cpu", weights_only=False)
+    ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
     
     # Extract image encoder type and configuration from checkpoint
     args.image_encoder_type = ckpt["config"]["model"]["image_encoder"]["name"]

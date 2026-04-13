@@ -23,7 +23,7 @@ def create_transforms(
     model_type="convnext",
 ):
     """Create classifier transforms for ImageNet-based models and Mammo-CLIP."""
-    if model_type == "mammo-clip": # Mammo-CLIP (UPMC) specific values
+    if model_type == "mammo-clip" or model_type == "fpn-mil": # Mammo-CLIP (UPMC) specific values
         normalize = transforms.Normalize(mean=[0.3089279, 0.3089279, 0.3089279], std=[0.25053555408335154, 0.25053555408335154, 0.25053555408335154])
     else: # ImageNet values
         normalize = transforms.Normalize(
