@@ -1,37 +1,39 @@
-# Diffusion-Based Counterfactual Generation in Mammography
+# Healthy Counterfactual Generation via Diffusion Inpainting for Mammography Classification
 
-This repository provides code for generating counterfactual images using diffusion models, evaluating their quality, and classifying them using deep learning techniques. The project is organized for research in medical imaging, specifically mammography, but can be adapted for other domains.
+This repository provides code for generating counterfactual images using diffusion models and its application through data augmentation in deep learning mammogram classifiers. The project is organized for research in medical imaging, specifically mammography, but can be adapted for other domains.
 
 ## Project Structure
 
-- **code/**
-  - `config.py`, `__init__.py`: Main configuration and initialization files.
-  - **Classifiers/**
-    - `aux_scripts/`: Utilities for dataset preparation and splitting.
-    - `scripts/`: Deep learning models (ConvNeXt, ViT), classification scripts, and evaluation tools.
-  - **DDPM/**
-    - `guided_diffusion/`: Core diffusion model implementation and utilities.
-    - `scripts/`: Training, sampling, and noise manipulation scripts for DDPM.
-  - **Evaluation/**
-    - Scripts for evaluating counterfactuals (FID, Grad-CAM, image quality).
-    - `aux_scripts/`: Additional utilities for evaluation and data preparation.
+- **src/**
+  - **A_Dataset_Exploration/**
+    - Jupyter notebook to explore the original metadata.
+  - **B_Dataset_Preprocessing/**
+    - Scripts to preprocess the images and the metadata.
+  - **C_Dataset_Handlers/**
+    - Dataset classes (VinDrMammo and INBreast)
+  - **D_Models/**
+    - Model specific classes and logic (ConvNeXt, ViT, Mammo-CLIP and FPN-MIL)
+  - **E_Aux_Scripts/**
+    - utility and logger functions
+  - **F_Tasks/**
+    - task scripts (train classifier, test classifier, ...)
 
 - **data/**
-  - `images/`: Contains generated images, masks, patches, and example data.
-  - `gradcam_logs/`: IOU logs for Grad-CAM evaluations.
-  - `metadata/`: CSV files with annotations and dataset splits.
+  - `images/`: Contains dataset images, generated counterfactuals, masks, explainability visualizations, besides others.
+  - `logs/`: logs for each task experiment that was run.
+  - `metadata/`: folder with original metadata (grouped_df.csv), json file with processed metadata, radiologist assessment information, besides others.
   - `zips/`: Compressed data files.
 
 - **models/**
-  - Pretrained model weights for classifiers and diffusion models.
-  - `zips/`: Compressed model files.
+  - DDPM checkpoint.
+  - Pretrained model weights for classifiers.
 
 ## Key Features
 
 - **Diffusion Models**: Implementation of DDPM and guided diffusion for counterfactual image generation.
-- **Classification**: Deep learning classifiers (ConvNeXt, ViT) for evaluating generated images.
-- **Evaluation**: FID score, Grad-CAM, and image quality assessment scripts.
-- **Medical Imaging Focus**: Tools and scripts tailored for mammography datasets (VinDr-Mammo).
+- **Classification**: Deep learning classifiers (ConvNeXt, ViT, Mammo-CLIP and FPN-MIL) for integrating the generated images as data augmentation.
+- **Evaluation**: explainability and radiologist assessment interpretation scripts.
+- **Medical Imaging Focus**: Tools and scripts tailored for the VinDr-Mammo mammography dataset, but can easily be adapted.
 
 ## Setup
 
@@ -47,10 +49,29 @@ This repository provides code for generating counterfactual images using diffusi
 
 ## Usage
 
-- **Train diffusion models**: See `code/DDPM/scripts/image_train.py`
-- **Sample images**: See `code/DDPM/scripts/image_sample.py`
-- **Classify images**: See `code/Classifiers/scripts/classify_counterfactuals.py`
-- **Evaluate counterfactuals**: See `code/Evaluation/`
+- **Train diffusion models**: `src/DDPM/scripts/image_train.py`
+  ```bash
+  python src/DDPM/scripts/image_train.py [training-parameters]
+  ```
+
+- **Sample images with a trained diffusion model**: `src/DDPM/scripts/image_sample.py`
+  ```bash
+  python src/DDPM/scripts/image_sample.py [sampling-parameters]
+  ```
+
+- **Train deep learning classifiers (with or without counterfactual augmentation)**: `src/F_Tasks/train_classifier.py`
+  ```bash
+  python src/F_Tasks/train_classifier.py [--cross-validation] [--use_counterfactuals] <model_type> [model-specific-parameters]
+  ```
+  Example:
+  ```bash
+  python src/F_Tasks/train_classifier.py convnext --use_counterfactuals
+  ```
+
+- **Test deep learning classifiers**: `src/F_Tasks/test_classifier.py`
+  ```bash
+  python src/F_Tasks/test_classifier.py [parameters] <model_type> [model-specific-parameters]
+  ```
 
 ## Citation
 TO DO
