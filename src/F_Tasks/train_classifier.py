@@ -2,8 +2,6 @@ import argparse
 import json
 import os
 import sys
-import random
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -18,89 +16,16 @@ IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
 
 from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
 from src.E_Aux_Scripts import logger
-from src.E_Aux_Scripts.utils import create_transforms, train_epoch, validate_epoch, resume_from_checkpoint, plot_training_metrics
-from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
-from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
-from src.D_Models.MammoCLIP.Classifiers.model.breast_clip_classifier import BreastClipClassifier, MammoClipInputAdapter
-from src.D_Models.FPN_MIL.MIL import build_model as build_mil_model, FpnMilInputAdapter
-
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-def seed_worker(args, worker_id):
-    worker_seed = args.seed + worker_id
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
-
-def build_model(args, log, device):
-    if args.model_type == "convnext":
-        model = ConvNeXtClassifier(
-            num_classes=1,
-            pretrained=args.pretrained
-        ).to(device)
-        log.info("ConvNeXt model created and moved to device")
-    elif args.model_type == "vit":
-        model = VisionTransformerClassifier(
-            num_classes=1,
-            pretrained=args.pretrained
-        ).to(device)
-        log.info("ViT model created and moved to device")
-    elif args.model_type == "mammo-clip":
-        clip_ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
-        base_model = BreastClipClassifier(args, ckpt=clip_ckpt, n_class=1)
-        model = MammoClipInputAdapter(base_model).to(device)
-        log.info(
-            f"Mammo-CLIP model created and moved to device using image encoder type [{base_model.get_image_encoder_type()}]"
-        )
-    elif args.model_type == "fpn-mil":
-        args.train = True
-        base_model = build_mil_model(args)
-        model = FpnMilInputAdapter(base_model).to(device)
-        log.info("FPN-MIL model created and moved to device")
-    else:
-        raise ValueError(f"Unsupported model type: {args.model_type}")
-    return model
-
-def create_optimizer(model, args, log):
-    """
-    Creates optimizer and calculates respective learning rates (regardless of whether layers are currently frozen or not).
-    
-    Returns:
-        optimizer: Configured AdamW optimizer
-    """
-    # Differential learning rates
-    if args.use_differential_lr:
-        backbone_params = []
-        classifier_params = []
-        
-        # Include ALL parameters (not just trainable ones)
-        for name, param in model.named_parameters():
-            if 'classifier' in name or 'heads' in name:
-                classifier_params.append(param)
-            else:
-                backbone_params.append(param)
-        
-        optimizer = optim.AdamW([
-            {'params': backbone_params, 'lr': args.lr * 0.1},  # Lower LR for backbone
-            {'params': classifier_params, 'lr': args.lr}  # Full LR for classifier
-        ], weight_decay=args.weight_decay)
-        
-        log.info(f"Using differential learning rates: backbone LR={args.lr * 0.1:.2e}, classifier LR={args.lr:.2e}")
-    
-    # Uniform learning rate for all parameters
-    else:
-        optimizer = optim.AdamW(
-            model.parameters(),
-            lr=args.lr,
-            weight_decay=args.weight_decay
-        )
-        log.info(f"Using uniform learning rate: {args.lr:.2e}")
-    
-    return optimizer
-
+from src.E_Aux_Scripts.utils import set_seed, seed_worker
+from src.E_Aux_Scripts.classifier_helpers import (
+	build_model,
+	create_transforms,
+    create_optimizer,
+    train_epoch,
+    validate_epoch,
+    resume_from_checkpoint,
+    plot_training_metrics
+)
 
 def main():
     args = create_argparser().parse_args()
@@ -192,7 +117,7 @@ def main():
         log.info(f"Using batch size {args.batch_size} and {args.num_workers} workers.")
 
         # Create model
-        model = build_model(args, log, device)
+        model = build_model(args, device, experiment="train")
         
         # Freeze initial feature layers/encoder blocks
         if args.freeze_layers > 0:
@@ -202,7 +127,7 @@ def main():
             log.info("No frozen layers: training all parameters from start")
         
         # Create optimizer with appropriate learning rates
-        optimizer = create_optimizer(model, args, log)
+        optimizer = create_optimizer(model, args)
 
         classes_distribution = train_dataset.get_class_distribution()
         if classes_distribution[1] > 0:
@@ -288,7 +213,6 @@ def main():
                     'val_loss': val_loss,
                     'args': vars(args)
                 }, save_path)
-                
                 log.info(f"New best model saved. Val Loss: {val_loss:.4f}")
             else:
                 patience_counter += 1
