@@ -324,7 +324,8 @@ def compute_metrics(targets, preds, probs):
 		"recall": to_pct(float(recall_score(targets, preds, zero_division=0))),
 		"f1_score": to_pct(float(f1_score(targets, preds, zero_division=0))),
 		"specificity": to_pct(float(specificity)),
-		"log_loss": None if np.isnan(ll) else float(ll),
+		"roc_auc": None if np.isnan(roc_auc) else to_pct(float(roc_auc)),
+		"log_loss": None if np.isnan(ll) else round(float(ll), 3),
 		"confusion_matrix": {
 			"tn": int(tn),
 			"fp": int(fp),
