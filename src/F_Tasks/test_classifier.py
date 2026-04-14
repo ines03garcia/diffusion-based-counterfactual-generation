@@ -30,6 +30,16 @@ def main():
 	parser = create_argparser()
 	args = parser.parse_args()
 
+	# Validate checkpoint arguments
+	if args.cross_validation:
+		if args.checkpoint_path is not None:
+			raise ValueError("--checkpoint_path cannot be used with --cross-validation. Use --checkpoint_dir instead.")
+		if args.checkpoint_dir is None:
+			raise ValueError("--checkpoint_dir is required when using --cross-validation.")
+	else:
+		if args.checkpoint_path is None and args.checkpoint_dir is None:
+			raise ValueError("Either --checkpoint_path or --checkpoint_dir must be provided.")
+
 	if args.data_dir is None:
 		if args.dataset == "vindr":
 			args.data_dir = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512")
@@ -78,47 +88,74 @@ def main():
 
 	model = build_model(args, device, experiment="test")
 
-	checkpoint_path = args.checkpoint_path
-	if not os.path.isabs(checkpoint_path):
-		checkpoint_path = os.path.join(MODELS_ROOT, checkpoint_path)
-	load_checkpoint_weights(model, checkpoint_path, device)
+	if args.cross_validation:
+		num_folds = 4
+	else:
+		num_folds = 1
 
-	probs, preds, targets, image_ids = run_inference(model, test_loader, device)
-	metrics, cm, fpr, tpr, roc_auc = compute_metrics(targets, preds, probs)
+	for fold in range(num_folds):
+		# Resolve checkpoint path
+		if args.checkpoint_path is not None:
+			checkpoint_path = args.checkpoint_path
+			if not os.path.isabs(checkpoint_path):
+				checkpoint_path = os.path.join(MODELS_ROOT, checkpoint_path)
+		else:
+			# checkpoint_dir is provided
+			checkpoint_dir = args.checkpoint_dir
+			if not os.path.isabs(checkpoint_dir):
+				checkpoint_dir = os.path.join(MODELS_ROOT, checkpoint_dir)
+			
+			if num_folds > 1:
+				checkpoint_dir = os.path.join(checkpoint_dir, f"fold_{fold}")
+				log.info(f"Loading checkpoint from directory: {checkpoint_dir}")
+			
+			checkpoint_path = os.path.join(checkpoint_dir, "best_model.pth")
+		
+		load_checkpoint_weights(model, checkpoint_path, device)
+		log.info(f"Starting testing for fold {fold}...")
+		probs, preds, targets, image_ids = run_inference(model, test_loader, device)
+		metrics, cm, fpr, tpr, roc_auc = compute_metrics(targets, preds, probs)
 
-	metrics["dataset"] = args.dataset
-	metrics["model_type"] = args.model_type
-	metrics["checkpoint_path"] = checkpoint_path
+		metrics["dataset"] = args.dataset
+		metrics["model_type"] = args.model_type
+		metrics["checkpoint_path"] = checkpoint_path
 
-	cm_path = os.path.join(log.output_dir, "confusion_matrix.png")
-	roc_path = os.path.join(log.output_dir, "roc_curve.png")
-	save_confusion_matrix(cm, cm_path)
-	save_roc_curve(fpr, tpr, roc_auc, roc_path)
+		if num_folds > 1:
+			metrics["fold"] = fold
+			log_dir = os.path.join(log.output_dir, f"fold_{fold}")
+			os.makedirs(log_dir, exist_ok=True)
+		else:
+			log_dir = log.output_dir
 
-	metrics_output_path = os.path.join(log.output_dir, "test_metrics.json")
-	with open(metrics_output_path, "w") as f:
-		json.dump(metrics, f, indent=2)
+		cm_path = os.path.join(log_dir, "confusion_matrix.png")
+		roc_path = os.path.join(log_dir, "roc_curve.png")
+		save_confusion_matrix(cm, cm_path)
+		save_roc_curve(fpr, tpr, roc_auc, roc_path)
 
-	preds_output_path = os.path.join(log.output_dir, "predictions.json")
-	predictions_payload = [
-		{
-			"image_id": image_id,
-			"target": int(target),
-			"pred": int(pred),
-			"prob": float(prob),
-		}
-		for image_id, target, pred, prob in zip(image_ids, targets, preds, probs)
-	]
-	with open(preds_output_path, "w") as f:
-		json.dump(predictions_payload, f, indent=2)
+		metrics_output_path = os.path.join(log_dir, "test_metrics.json")
+		with open(metrics_output_path, "w") as f:
+			json.dump(metrics, f, indent=2)
 
-	log.info("Testing completed successfully")
-	log.info(f"Metrics: {json.dumps(metrics, indent=2)}")
-	log.info(f"Saved args to: {args_output_path}")
-	log.info(f"Saved metrics to: {metrics_output_path}")
-	log.info(f"Saved confusion matrix to: {cm_path}")
-	log.info(f"Saved ROC curve to: {roc_path}")
-	log.info(f"Saved predictions to: {preds_output_path}")
+		preds_output_path = os.path.join(log_dir, "predictions.json")
+		predictions_payload = [
+			{
+				"image_id": image_id,
+				"target": int(target),
+				"pred": int(pred),
+				"prob": float(prob),
+			}
+			for image_id, target, pred, prob in zip(image_ids, targets, preds, probs)
+		]
+		with open(preds_output_path, "w") as f:
+			json.dump(predictions_payload, f, indent=2)
+
+		log.info("Testing completed successfully")
+		log.info(f"Metrics: {json.dumps(metrics, indent=2)}")
+		log.info(f"Saved args to: {args_output_path}")
+		log.info(f"Saved metrics to: {metrics_output_path}")
+		log.info(f"Saved confusion matrix to: {cm_path}")
+		log.info(f"Saved ROC curve to: {roc_path}")
+		log.info(f"Saved predictions to: {preds_output_path}")
 
 
 def create_argparser():
@@ -140,7 +177,10 @@ def create_argparser():
 		default=False,
 		help="Whether to include counterfactual examples during test loading (VinDr only)",
 	)
-	parser.add_argument("--checkpoint_path", type=str, required=True)
+
+	parser.add_argument("--cross-validation", action="store_true", default=False)
+	parser.add_argument("--checkpoint_dir", type=str, default=None)
+	parser.add_argument("--checkpoint_path", type=str, default=None)
 	parser.add_argument("--num_workers", type=int, default=4)
 	parser.add_argument("--pretrained", action="store_true", default=True)
 	parser.add_argument("--seed", type=int, default=0)
