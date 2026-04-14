@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import statistics
 import sys
 import torch
 from torch.utils.data import DataLoader
@@ -93,6 +94,8 @@ def main():
 	else:
 		num_folds = 1
 
+	fold_metrics_list = []
+
 	for fold in range(num_folds):
 		# Resolve checkpoint path
 		if args.checkpoint_path is not None:
@@ -124,6 +127,7 @@ def main():
 			metrics["fold"] = fold
 			log_dir = os.path.join(log.output_dir, f"fold_{fold}")
 			os.makedirs(log_dir, exist_ok=True)
+			fold_metrics_list.append(metrics)
 		else:
 			log_dir = log.output_dir
 
@@ -157,6 +161,43 @@ def main():
 		log.info(f"Saved ROC curve to: {roc_path}")
 		log.info(f"Saved predictions to: {preds_output_path}")
 
+	# Aggregate results across folds if requested
+	if args.cross_validation and args.aggregate_results and fold_metrics_list:
+		log.info("Aggregating results across folds...")
+		aggregate_dir = os.path.join(log.output_dir, "aggregated")
+		os.makedirs(aggregate_dir, exist_ok=True)
+		
+		# Collect all metrics keys (excluding fold, dataset, model_type, checkpoint_path)
+		metric_keys = set()
+		for fold_metrics in fold_metrics_list:
+			for key in fold_metrics.keys():
+				if key not in ["fold", "dataset", "model_type", "checkpoint_path"]:
+					if isinstance(fold_metrics[key], (int, float)):
+						metric_keys.add(key)
+		
+		# Calculate means and stds
+		aggregated_metrics = {
+			"dataset": args.dataset,
+			"model_type": args.model_type,
+			"num_folds": num_folds,
+		}
+		
+		for metric_key in sorted(metric_keys):
+			values = [fold_metrics[metric_key] for fold_metrics in fold_metrics_list if metric_key in fold_metrics]
+			if values:
+				aggregated_metrics[f"{metric_key}_mean"] = float(sum(values) / len(values))
+				if len(values) > 1:
+					import statistics
+					aggregated_metrics[f"{metric_key}_std"] = float(statistics.stdev(values))
+		
+		# Save aggregated metrics
+		agg_metrics_path = os.path.join(aggregate_dir, "test_metrics.json")
+		with open(agg_metrics_path, "w") as f:
+			json.dump(aggregated_metrics, f, indent=2)
+		
+		log.info(f"Aggregated metrics saved to: {agg_metrics_path}")
+		log.info(f"Aggregated metrics: {json.dumps(aggregated_metrics, indent=2)}")
+
 
 def create_argparser():
 	parser = argparse.ArgumentParser()
@@ -179,6 +220,7 @@ def create_argparser():
 	)
 
 	parser.add_argument("--cross-validation", action="store_true", default=False)
+	parser.add_argument("--aggregate_results", action="store_true", default=False, help="Aggregate metrics across folds after testing")
 	parser.add_argument("--checkpoint_dir", type=str, default=None)
 	parser.add_argument("--checkpoint_path", type=str, default=None)
 	parser.add_argument("--num_workers", type=int, default=4)
