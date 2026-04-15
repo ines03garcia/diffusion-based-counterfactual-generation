@@ -185,10 +185,9 @@ def main():
 		for metric_key in sorted(metric_keys):
 			values = [fold_metrics[metric_key] for fold_metrics in fold_metrics_list if metric_key in fold_metrics]
 			if values:
-				aggregated_metrics[f"{metric_key}_mean"] = float(sum(values) / len(values))
-				if len(values) > 1:
-					import statistics
-					aggregated_metrics[f"{metric_key}_std"] = float(statistics.stdev(values))
+				mean_value = sum(values) / len(values)
+				std_value = statistics.stdev(values) if len(values) > 1 else 0.0
+				aggregated_metrics[metric_key] = f"{mean_value * 100:.1f} +- {std_value * 100:.2f}"
 		
 		# Save aggregated metrics
 		agg_metrics_path = os.path.join(aggregate_dir, "test_metrics.json")
