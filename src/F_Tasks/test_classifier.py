@@ -1,10 +1,12 @@
 import argparse
 import json
+import math
 import os
 import statistics
 import sys
 import torch
 from torch.utils.data import DataLoader
+from scipy.stats import wilcoxon
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
@@ -166,12 +168,32 @@ def main():
 		log.info("Aggregating results across folds...")
 		aggregate_dir = os.path.join(log.output_dir, "aggregated")
 		os.makedirs(aggregate_dir, exist_ok=True)
+
+		percentage_metrics = {
+			"accuracy",
+			"balanced_accuracy",
+			"precision",
+			"recall",
+			"f1_score",
+			"specificity",
+			"roc_auc",
+		}
+		metric_baselines = {
+			"accuracy": 50.0,
+			"balanced_accuracy": 50.0,
+			"precision": 50.0,
+			"recall": 50.0,
+			"f1_score": 50.0,
+			"specificity": 50.0,
+			"roc_auc": 50.0,
+			"log_loss": math.log(2.0),
+		}
 		
 		# Collect all metrics keys (excluding fold, dataset, model_type, checkpoint_path)
 		metric_keys = set()
 		for fold_metrics in fold_metrics_list:
 			for key in fold_metrics.keys():
-				if key not in ["fold", "dataset", "model_type", "checkpoint_path"]:
+				if key not in ["fold", "dataset", "model_type", "checkpoint_path", "num_samples"]:
 					if isinstance(fold_metrics[key], (int, float)):
 						metric_keys.add(key)
 		
@@ -187,7 +209,12 @@ def main():
 			if values:
 				mean_value = sum(values) / len(values)
 				std_value = statistics.stdev(values) if len(values) > 1 else 0.0
-				aggregated_metrics[metric_key] = f"{mean_value * 100:.1f} +- {std_value * 100:.2f}"
+				if metric_key in percentage_metrics:
+					aggregated_metrics[metric_key] = f"{mean_value:.1f} +- {std_value:.2f}"
+				elif metric_key == "log_loss":
+					aggregated_metrics[metric_key] = f"{mean_value:.3f} +- {std_value:.3f}"
+				else:
+					aggregated_metrics[metric_key] = f"{mean_value:.3f} +- {std_value:.3f}"
 		
 		# Save aggregated metrics
 		agg_metrics_path = os.path.join(aggregate_dir, "test_metrics.json")
