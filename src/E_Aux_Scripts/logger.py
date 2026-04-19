@@ -23,11 +23,11 @@ class Logger:
         if experiment_type:
             experiment_log_dir = f"{experiment_type}"
             if sub_experiment_type:
-                experiment_log_dir = f"{experiment_log_dir}/{sub_experiment_type}"
+                experiment_log_dir += f"/{sub_experiment_type}"
             if model_type:
-                experiment_log_dir = f"{experiment_log_dir}_{model_type}"
+                experiment_log_dir += f"/{model_type}"
             if setup:
-                experiment_log_dir = f"{experiment_log_dir}/{setup}"
+                experiment_log_dir += f"/{setup}"
         else:
             experiment_log_dir = "Other"
 

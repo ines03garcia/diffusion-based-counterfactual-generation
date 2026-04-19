@@ -27,21 +27,53 @@ from src.E_Aux_Scripts.classifier_helpers import (
     plot_training_metrics
 )
 
+
+def build_base_setup(args):
+    augmentation_mode = "cf_aug" if args.use_counterfactuals else "baseline_aug"
+    
+    if args.cross_validation:
+        mode = "cross-validation"
+    elif args.multiple_seeds:
+        mode = "multiple_seeds"
+    else:
+        mode = "other"
+        
+    return "/".join([augmentation_mode, mode])
+
+
+def build_seed_setup(base_setup, seed):
+    return f"{base_setup}/seed_{seed}"
+
+
+def parse_and_validate_args():
+    parser = create_argparser()
+    args = parser.parse_args()
+
+    if args.cross_validation and args.multiple_seeds:
+        parser.error("Use only one mode: --cross-validation OR --multiple_seeds.")
+    if not args.cross_validation and not args.multiple_seeds:
+        parser.error("Enable one mode: --cross-validation or --multiple_seeds.")
+
+    # Multi-seed runs are training-only (no validation split).
+    if args.multiple_seeds:
+        args.no_validation = True
+
+    return args
+
 def main():
-    args = create_argparser().parse_args()
+    args = parse_and_validate_args()
     if args.multiple_seeds:
         seeds = [args.seed + i for i in range(5)]
     else:
         seeds = [args.seed]
 
+    base_setup = build_base_setup(args)
+
     for seed in seeds:
         set_seed(seed)
-
-        setup = f"{'with_cf' if args.use_counterfactuals else 'no_cf'}"
-        if args.multiple_seeds:
-            setup += f"_seed_{seed}"
-        setup += f"_cv" if args.cross_validation else ""
-        log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=setup)
+        seed_setup = build_seed_setup(base_setup, seed)
+        
+        log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=seed_setup)
         log.configure_root_logger()
         log.info(f"Logs will be saved to: {log.output_dir}")
         
@@ -241,6 +273,17 @@ def main():
                     if patience_counter >= patience:
                         log.info(f"Early stopping triggered after {epoch+1} epochs")
                         break
+
+            if args.no_validation:
+                # Save final model when no validation is used
+                save_path = os.path.join(fold_results_dir, 'final_model.pth')
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'args': vars(args)
+                }, save_path)
+                log.info(f"Model trained for {args.epochs} epochs without validation and saved to: {save_path}")
             
             # Save training history
             with open(os.path.join(fold_results_dir, 'training_history.json'), 'w') as f:
