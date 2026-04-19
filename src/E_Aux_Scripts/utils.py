@@ -9,8 +9,9 @@ def set_seed(seed):
 	torch.manual_seed(seed)
 	torch.cuda.manual_seed_all(seed)
 
-def seed_worker(args, worker_id):
-	worker_seed = args.seed + worker_id
+def seed_worker(seed_or_args, worker_id):
+	base_seed = seed_or_args.seed if hasattr(seed_or_args, "seed") else int(seed_or_args)
+	worker_seed = base_seed + worker_id
 	np.random.seed(worker_seed)
 	random.seed(worker_seed)
 
