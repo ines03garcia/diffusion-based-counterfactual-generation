@@ -41,10 +41,6 @@ def build_base_setup(args):
     return "/".join([augmentation_mode, mode])
 
 
-def build_seed_setup(base_setup, seed):
-    return f"{base_setup}/seed_{seed}"
-
-
 def parse_and_validate_args():
     parser = create_argparser()
     args = parser.parse_args()
@@ -68,20 +64,24 @@ def main():
         seeds = [args.seed]
 
     base_setup = build_base_setup(args)
+    
+    # Create the main logger once for the entire run
+    log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=base_setup)
+    log.configure_root_logger()
+    log.info(f"Logs will be saved to: {log.output_dir}")
+    
+    # Save arguments at the timestamp level
+    args_path = os.path.join(log.output_dir, 'args.json')
+    with open(args_path, 'w') as f:
+        json.dump(vars(args), f, indent=2)
 
     for seed in seeds:
         set_seed(seed)
-        seed_setup = build_seed_setup(base_setup, seed)
         
-        log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=seed_setup)
-        log.configure_root_logger()
-        log.info(f"Logs will be saved to: {log.output_dir}")
-        
-        # Save arguments
-        output_dir = log.output_dir
-        args_path = os.path.join(output_dir, 'args.json')
-        with open(args_path, 'w') as f:
-            json.dump(vars(args), f, indent=2)
+        # Create seed-specific subdirectory
+        seed_dir = os.path.join(log.output_dir, f"seed_{seed}")
+        os.makedirs(seed_dir, exist_ok=True)
+        log.info(f"Running with seed {seed} in directory: {seed_dir}")
 
         # Set device
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -98,7 +98,7 @@ def main():
         log.debug(f"Validation transforms: {val_transform}")
 
         # Log info
-        results_dir = output_dir
+        results_dir = seed_dir
         log.info(f"Running training with seed {seed}. Results will be saved to: {results_dir}")
             
         if args.cross_validation:
