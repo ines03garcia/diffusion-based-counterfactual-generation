@@ -1,7 +1,6 @@
 # Prepare dataset by running CLAHE on all images
 import cv2
 import os
-from src.config import DATASET_DIR, IMAGES_ROOT
 
 def apply_clahe_to_image(image_path, output_path, clip_limit=2.0, tile_grid_size=(8, 8)):
     # Read the image
@@ -32,6 +31,6 @@ def process_dataset(input_dir, output_dir):
 
 
 if __name__ == "__main__":
-    input_directory = DATASET_DIR
-    output_directory = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512")
+    input_directory = "data/images/VinDr-Mammo-Clip-512" # Resized images directory
+    output_directory = "data/images/VinDr-Mammo-Clip-CLAHE-512" # Output directory for resized CLAHE images
     process_dataset(input_directory, output_directory)
