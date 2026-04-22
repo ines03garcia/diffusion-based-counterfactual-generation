@@ -34,14 +34,22 @@ def main():
 	args = parser.parse_args()
 
 	# Validate checkpoint arguments
-	if args.cross_validation:
-		if args.checkpoint_path is not None:
-			raise ValueError("--checkpoint_path cannot be used with --cross-validation. Use --checkpoint_dir instead.")
-		if args.checkpoint_dir is None:
-			raise ValueError("--checkpoint_dir is required when using --cross-validation.")
+	if args.multiple_seeds:
+		if args.cross_validation:
+			raise ValueError("--multiple_seeds cannot be used with --cross-validation.")
+		if args.checkpoint_dir is not None:
+			raise ValueError("--checkpoint_dir cannot be used with --multiple_seeds. Use --checkpoint_path pointing to the parent directory.")
+		if args.checkpoint_path is None:
+			raise ValueError("--checkpoint_path is required with --multiple_seeds.")
 	else:
-		if args.checkpoint_path is None and args.checkpoint_dir is None:
-			raise ValueError("Either --checkpoint_path or --checkpoint_dir must be provided.")
+		if args.cross_validation:
+			if args.checkpoint_path is not None:
+				raise ValueError("--checkpoint_path cannot be used with --cross-validation. Use --checkpoint_dir instead.")
+			if args.checkpoint_dir is None:
+				raise ValueError("--checkpoint_dir is required when using --cross-validation.")
+		else:
+			if args.checkpoint_path is None and args.checkpoint_dir is None:
+				raise ValueError("Either --checkpoint_path or --checkpoint_dir must be provided.")
 
 	if args.data_dir is None:
 		if args.dataset == "vindr":
@@ -91,7 +99,39 @@ def main():
 
 	model = build_model(args, device, experiment="test")
 
-	if args.cross_validation:
+	seed_checkpoints = []
+	if args.multiple_seeds:
+		seed_root = args.checkpoint_path
+		if not os.path.isabs(seed_root):
+			# Prefer paths relative to the project root (e.g. data/logs/...),
+			# then fall back to models/ for backward compatibility.
+			project_relative = os.path.join(PROJECT_ROOT, seed_root)
+			models_relative = os.path.join(MODELS_ROOT, seed_root)
+			if os.path.isdir(project_relative):
+				seed_root = project_relative
+			else:
+				seed_root = models_relative
+		if not os.path.isdir(seed_root):
+			raise ValueError("With --multiple_seeds, --checkpoint_path must be a directory containing seed_i folders.")
+
+		seed_dirs = sorted(
+			[
+				d for d in os.listdir(seed_root)
+				if d.startswith("seed_") and os.path.isdir(os.path.join(seed_root, d))
+			]
+		)
+		for seed_dir in seed_dirs:
+			seed_ckpt = os.path.join(seed_root, seed_dir, "final_model.pth")
+			if os.path.exists(seed_ckpt):
+				seed_checkpoints.append((seed_dir, seed_ckpt))
+			else:
+				log.warning(f"Skipping {seed_dir}: missing checkpoint {seed_ckpt}")
+
+		if not seed_checkpoints:
+			raise FileNotFoundError(f"No seed_i/final_model.pth checkpoints found under {seed_root}")
+
+		num_folds = len(seed_checkpoints)
+	elif args.cross_validation:
 		num_folds = 4
 	else:
 		num_folds = 1
@@ -100,7 +140,11 @@ def main():
 
 	for fold in range(num_folds):
 		# Resolve checkpoint path
-		if args.checkpoint_path is not None:
+		seed_name = None
+		if args.multiple_seeds:
+			seed_name, checkpoint_path = seed_checkpoints[fold]
+			log.info(f"Loading checkpoint from seed directory: {seed_name}")
+		elif args.checkpoint_path is not None:
 			checkpoint_path = args.checkpoint_path
 			if not os.path.isabs(checkpoint_path):
 				checkpoint_path = os.path.join(MODELS_ROOT, checkpoint_path)
@@ -125,7 +169,11 @@ def main():
 		metrics["model_type"] = args.model_type
 		metrics["checkpoint_path"] = checkpoint_path
 
-		if num_folds > 1:
+		if args.multiple_seeds:
+			metrics["seed"] = seed_name
+			log_dir = os.path.join(log.output_dir, seed_name)
+			os.makedirs(log_dir, exist_ok=True)
+		elif num_folds > 1:
 			metrics["fold"] = fold
 			log_dir = os.path.join(log.output_dir, f"fold_{fold}")
 			os.makedirs(log_dir, exist_ok=True)
@@ -246,6 +294,7 @@ def create_argparser():
 	)
 
 	parser.add_argument("--cross-validation", action="store_true", default=False)
+	parser.add_argument("--multiple_seeds", action="store_true", default=False, help="Evaluate all seed_i/final_model.pth checkpoints under --checkpoint_path")
 	parser.add_argument("--aggregate_results", action="store_true", default=False, help="Aggregate metrics across folds after testing")
 	parser.add_argument("--checkpoint_dir", type=str, default=None)
 	parser.add_argument("--checkpoint_path", type=str, default=None)
