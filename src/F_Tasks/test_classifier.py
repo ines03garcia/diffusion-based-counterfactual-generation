@@ -130,19 +130,19 @@ def main():
 		if not seed_checkpoints:
 			raise FileNotFoundError(f"No seed_i/final_model.pth checkpoints found under {seed_root}")
 
-		num_folds = len(seed_checkpoints)
+		num_runs = len(seed_checkpoints)
 	elif args.cross_validation:
-		num_folds = 4
+		num_runs = 4
 	else:
-		num_folds = 1
+		num_runs = 1
 
 	fold_metrics_list = []
 
-	for fold in range(num_folds):
+	for run_idx in range(num_runs):
 		# Resolve checkpoint path
 		seed_name = None
 		if args.multiple_seeds:
-			seed_name, checkpoint_path = seed_checkpoints[fold]
+			seed_name, checkpoint_path = seed_checkpoints[run_idx]
 			log.info(f"Loading checkpoint from seed directory: {seed_name}")
 		elif args.checkpoint_path is not None:
 			checkpoint_path = args.checkpoint_path
@@ -154,14 +154,19 @@ def main():
 			if not os.path.isabs(checkpoint_dir):
 				checkpoint_dir = os.path.join(MODELS_ROOT, checkpoint_dir)
 			
-			if num_folds > 1:
-				checkpoint_dir = os.path.join(checkpoint_dir, f"fold_{fold}")
+			if num_runs > 1:
+				checkpoint_dir = os.path.join(checkpoint_dir, f"fold_{run_idx}")
 				log.info(f"Loading checkpoint from directory: {checkpoint_dir}")
 			
 			checkpoint_path = os.path.join(checkpoint_dir, "best_model.pth")
 		
 		load_checkpoint_weights(model, checkpoint_path, device)
-		log.info(f"Starting testing for fold {fold}...")
+		if args.multiple_seeds:
+			log.info(f"Starting testing for seed {seed_name} on the full test set...")
+		elif args.cross_validation:
+			log.info(f"Starting testing for fold {run_idx}...")
+		else:
+			log.info("Starting testing on the full test set...")
 		probs, preds, targets, image_ids = run_inference(model, test_loader, device)
 		metrics, cm, fpr, tpr, roc_auc = compute_metrics(targets, preds, probs)
 
@@ -173,9 +178,9 @@ def main():
 			metrics["seed"] = seed_name
 			log_dir = os.path.join(log.output_dir, seed_name)
 			os.makedirs(log_dir, exist_ok=True)
-		elif num_folds > 1:
-			metrics["fold"] = fold
-			log_dir = os.path.join(log.output_dir, f"fold_{fold}")
+		elif num_runs > 1:
+			metrics["fold"] = run_idx
+			log_dir = os.path.join(log.output_dir, f"fold_{run_idx}")
 			os.makedirs(log_dir, exist_ok=True)
 			fold_metrics_list.append(metrics)
 		else:
@@ -249,7 +254,7 @@ def main():
 		aggregated_metrics = {
 			"dataset": args.dataset,
 			"model_type": args.model_type,
-			"num_folds": num_folds,
+			"num_folds": num_runs,
 		}
 		
 		for metric_key in sorted(metric_keys):
