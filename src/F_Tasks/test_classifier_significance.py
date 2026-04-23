@@ -203,7 +203,7 @@ def main():
 	base_path, extension = os.path.splitext(output_file_path)
 	if extension == "":
 		extension = ".json"
-	summary_output_path = f"comparison_summary_{base_path}{extension}"
+	summary_output_path = f"{base_path}_comparison_summary{extension}"
 
 	with open(summary_output_path, "w") as f:
 		json.dump(comparison_summary, f, indent=2)
