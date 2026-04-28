@@ -24,6 +24,22 @@ from src.C_Dataset_Handlers.Inbreast_dataset import Inbreast_dataset
 
 log = logging.getLogger(__name__)
 
+def mixup_batch(images, labels, alpha=1.0):
+	"""Apply MixUp to a batch of images and labels"""
+	batch_size = images.size(0)
+
+	# Generate random mixing coefficient
+	mix_coef = np.random.beta(alpha, alpha) # If alpha=1.0, this will give a uniform distribution between 0 and 1
+
+	# Random index permutation for mixing
+	index = torch.randperm(batch_size, device=images.device)
+
+	# Mix images and labels
+	mixed_images = mix_coef * images + (1 - mix_coef) * images[index, :]
+	mixed_labels = mix_coef * labels + (1 - mix_coef) * labels[index]
+
+	return mixed_images, mixed_labels, mix_coef
+
 def build_model(args, device, experiment="train"):
 	if args.model_type == "convnext":
 		from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
@@ -124,7 +140,10 @@ def create_transforms(
 ):
 	"""Create classifier transforms for ImageNet-based models and Mammo-CLIP."""
 	if model_type == "mammo-clip" or model_type == "fpn-mil": # Mammo-CLIP (UPMC) specific values
-		normalize = transforms.Normalize(mean=[0.3089279, 0.3089279, 0.3089279], std=[0.25053555408335154, 0.25053555408335154, 0.25053555408335154])
+		normalize = transforms.Normalize(
+			mean=[0.3089279, 0.3089279, 0.3089279], 
+			std=[0.25053555408335154, 0.25053555408335154, 0.25053555408335154]
+		)
 	else: # ImageNet values
 		normalize = transforms.Normalize(
 			mean=[0.485, 0.456, 0.406], 
@@ -135,6 +154,17 @@ def create_transforms(
 		train_transform = transforms.Compose([
 			transforms.Lambda(lambda img: img.convert("RGB")),
 			transforms.Resize((224, 224)),
+			transforms.ToTensor(),
+			normalize,
+		])
+	elif augmentation_type == "mixup":
+		# Add mixup augmentation to the standard set of transformations
+		train_transform = transforms.Compose([
+			transforms.Lambda(lambda img: img.convert("RGB")),
+			transforms.Resize((224, 224)),
+			transforms.RandomHorizontalFlip(p=0.5),
+			transforms.RandomRotation(degrees=15),
+			transforms.ColorJitter(brightness=0.2, contrast=0.2),
 			transforms.ToTensor(),
 			normalize,
 		])
@@ -158,7 +188,7 @@ def create_transforms(
 
 	return train_transform, val_transform
 
-def train_epoch(model, dataloader, criterion, optimizer, device):
+def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=False, mixup_alpha=1.0):
 	"""Train for one epoch"""
 	model.train()
 	running_loss = 0.0
@@ -169,15 +199,24 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
 		images, labels, _ = batch
 		images, labels = images.to(device), labels.to(device).float().view(-1)
 
+		if use_mixup:
+			images, mixed_labels, _ = mixup_batch(images, labels, alpha=mixup_alpha)
+
 		optimizer.zero_grad()
 		outputs = model(images).view(-1)
-		loss = criterion(outputs, labels)
+		
+		if use_mixup:
+			loss = criterion(outputs, mixed_labels)
+		else:
+			loss = criterion(outputs, labels)
+		
 		loss.backward()
 		optimizer.step()
 
 		running_loss += loss.item()
 		preds = (torch.sigmoid(outputs) > 0.5).float()
-		predictions.extend(preds.cpu().numpy())
+		predictions.extend(preds.cpu().detach().numpy())
+		# For metrics, use original labels (not mixed labels)
 		targets.extend(labels.cpu().numpy())
 
 	epoch_loss = running_loss / len(dataloader)

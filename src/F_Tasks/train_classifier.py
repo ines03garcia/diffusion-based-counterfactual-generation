@@ -93,7 +93,9 @@ def main():
             model_type=args.model_type
         )
 
-        log.info(f"Using augmentation type: {args.augmentation_type}") # To add - Mixup
+        log.info(f"Using augmentation type: {args.augmentation_type}")
+        if args.use_mixup:
+            log.info(f"MixUp augmentation enabled with alpha={args.mixup_alpha}")
         log.debug(f"Train transforms: {train_transform}")
         log.debug(f"Validation transforms: {val_transform}")
 
@@ -229,7 +231,11 @@ def main():
                     model.unfreeze_layers(epoch, args.epochs)
 
                 # Train
-                train_loss, train_acc, train_f1 = train_epoch(model, train_loader, criterion, optimizer, device) # With fixed train threshold at 0.5
+                train_loss, train_acc, train_f1 = train_epoch(
+                    model, train_loader, criterion, optimizer, device,
+                    use_mixup=args.use_mixup,
+                    mixup_alpha=args.mixup_alpha
+                )
                 
                 if not args.no_validation:
                     # Validate
@@ -318,7 +324,9 @@ def create_argparser():
     parser.add_argument('--num_workers', type=int, default=4, help='Number of workers for data loading')
     parser.add_argument('--pretrained', action='store_true', default=True)
     parser.add_argument('--freeze_layers', type=int, default=6, help='Number of initial feature layers to freeze (0 = no freezing)')
-    parser.add_argument('--augmentation_type', type=str, choices=['none', 'standard'], default="standard") # TO ADD: MIXUP
+    parser.add_argument('--augmentation_type', type=str, choices=['none', 'standard'], default="standard")
+    parser.add_argument('--use_mixup', action='store_true', default=False, help='Whether to apply MixUp augmentation during training')
+    parser.add_argument('--mixup_alpha', type=float, default=1.0, help='Beta distribution parameter for MixUp (higher = more diverse mixing)')
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--multiple_seeds', action='store_true', default=False)
