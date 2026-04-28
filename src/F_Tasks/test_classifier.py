@@ -65,8 +65,25 @@ def main():
 
 	set_seed(args.seed)
 
-	setup = f"{args.dataset}_{'with_cf' if args.use_counterfactuals else 'no_cf'}"
-	log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="test", model_type=args.model_type, setup=setup)
+	if args.multiple_seeds:
+		config = "/multiple_seeds"
+	elif args.cross_validation:
+		config = "/cross_validation"
+	else:
+		config = "/"
+
+	cp_norm = os.path.normpath(args.checkpoint_path)
+	cp_parts = cp_norm.split(os.path.sep)
+
+	if 'cf_aug' in cp_parts:
+		aug_tag = '/cf_aug'
+	elif 'baseline_aug' in cp_parts:
+		aug_tag = '/baseline_aug'
+	else:
+		aug_tag = '/unknown_aug'
+
+	setup = f"{config}{aug_tag}"
+	log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="test", dataset=args.dataset, model_type=args.model_type, setup=setup)
 	log.configure_root_logger()
 	log.info(f"Logs will be saved to: {log.output_dir}")
 
