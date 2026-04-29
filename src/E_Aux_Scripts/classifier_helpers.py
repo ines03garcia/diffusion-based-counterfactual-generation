@@ -21,6 +21,7 @@ from sklearn.metrics import (
 
 from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
 from src.C_Dataset_Handlers.Inbreast_dataset import Inbreast_dataset
+from src.E_Aux_Scripts.LOW import LOWLoss
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def mixup_batch(images, labels, alpha=1.0):
 	batch_size = images.size(0)
 
 	# Generate random mixing coefficient
-	mix_coef = np.random.beta(alpha, alpha) # If alpha=1.0, this will give a uniform distribution between 0 and 1
+	mix_coef = np.random.beta(alpha, alpha) # If alpha=1.0, this will give a value sampled from a uniform distribution between 0 and 1
 
 	# Random index permutation for mixing
 	index = torch.randperm(batch_size, device=images.device)
@@ -41,24 +42,26 @@ def mixup_batch(images, labels, alpha=1.0):
 	return mixed_images, mixed_labels, mix_coef
 
 def build_model(args, device, experiment="train"):
+	num_classes = 2 if args.loss == "low" else 1
+
 	if args.model_type == "convnext":
 		from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
 		model = ConvNeXtClassifier(
-			num_classes=1,
+			num_classes=num_classes,
 			pretrained=args.pretrained,
 		).to(device)
 		log.info("ConvNeXt model created and moved to device")
 	elif args.model_type == "vit":
 		from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
 		model = VisionTransformerClassifier(
-			num_classes=1,
+			num_classes=num_classes,
 			pretrained=args.pretrained,
 		).to(device)
 		log.info("ViT model created and moved to device")
 	elif args.model_type == "mammo-clip":
 		from src.D_Models.MammoCLIP.Classifiers.model.breast_clip_classifier import BreastClipClassifier, MammoClipInputAdapter
 		clip_ckpt = torch.load(args.clip_chk_pt_path, map_location="cpu", weights_only=False)
-		base_model = BreastClipClassifier(args, ckpt=clip_ckpt, n_class=1)
+		base_model = BreastClipClassifier(args, ckpt=clip_ckpt, n_class=num_classes)
 		model = MammoClipInputAdapter(base_model).to(device)
 		log.info(
 			f"Mammo-CLIP model created and moved to device using image encoder type [{base_model.get_image_encoder_type()}]"
@@ -66,12 +69,17 @@ def build_model(args, device, experiment="train"):
 	elif args.model_type == "fpn-mil":
 		from src.D_Models.FPN_MIL.MIL import build_model as build_mil_model, FpnMilInputAdapter
 		args.train = True if experiment == "train" else False
+		args.n_class = num_classes
 		base_model = build_mil_model(args)
 		model = FpnMilInputAdapter(base_model).to(device)
 		log.info("FPN-MIL model created and moved to device")
 	else:
 		raise ValueError(f"Unsupported model type: {args.model_type}")
 	return model
+
+
+def _uses_low_loss(criterion):
+	return isinstance(criterion, LOWLoss)
 
 
 def create_optimizer(model, args):
@@ -194,30 +202,44 @@ def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=False
 	running_loss = 0.0
 	predictions = []
 	targets = []
+	uses_low_loss = _uses_low_loss(criterion)
+
+	if use_mixup and uses_low_loss:
+		raise ValueError("MixUp is not supported with LOWLoss because it requires hard class targets.")
 
 	for batch in tqdm(dataloader, desc="Training"):
 		images, labels, _ = batch
-		images, labels = images.to(device), labels.to(device).float().view(-1)
+		images = images.to(device)
+		labels = labels.to(device)
 
 		if use_mixup:
 			images, mixed_labels, _ = mixup_batch(images, labels, alpha=mixup_alpha)
 
 		optimizer.zero_grad()
-		outputs = model(images).view(-1)
+		outputs = model(images)
+
+		if uses_low_loss:
+			labels_for_loss = labels.long()
+		else:
+			labels_for_loss = labels.float()
 		
 		if use_mixup:
 			loss = criterion(outputs, mixed_labels)
 		else:
-			loss = criterion(outputs, labels)
+			loss = criterion(outputs, labels_for_loss)
 		
 		loss.backward()
 		optimizer.step()
 
 		running_loss += loss.item()
-		preds = (torch.sigmoid(outputs) > 0.5).float()
+		if uses_low_loss:
+			preds = torch.argmax(outputs, dim=1).float() # return class index with the highest score
+		else:
+			preds = (torch.sigmoid(outputs) > 0.5).float()
+		
 		predictions.extend(preds.cpu().detach().numpy())
-		# For metrics, use original labels (not mixed labels)
-		targets.extend(labels.cpu().numpy())
+		# Consider the original labels when computing training metrics, even if MixUp is used (soft labels are not suitable for metric calculations)
+		targets.extend(labels.long().cpu().numpy() if uses_low_loss else labels.float().cpu().numpy())
 
 	epoch_loss = running_loss / len(dataloader)
 	epoch_acc = accuracy_score(targets, predictions)
@@ -232,19 +254,30 @@ def validate_epoch(model, dataloader, criterion, device):
 	running_loss = 0.0
 	predictions = []
 	targets = []
+	uses_low_loss = _uses_low_loss(criterion)
 
 	with torch.no_grad():
 		for batch in tqdm(dataloader, desc="Validation"):
 			images, labels, _ = batch
-			images, labels = images.to(device), labels.to(device).float().view(-1)
+			images = images.to(device)
+			labels = labels.to(device)
 
-			outputs = model(images).view(-1)
-			loss = criterion(outputs, labels)
+			outputs = model(images)
+
+			if uses_low_loss:
+				labels_for_loss = labels.long()
+			else:
+				labels_for_loss = labels.float()
+
+			loss = criterion(outputs, labels_for_loss)
 
 			running_loss += loss.item()
-			preds = (torch.sigmoid(outputs) > 0.5).float()
+			if uses_low_loss:
+				preds = torch.argmax(outputs, dim=1).float()
+			else:
+				preds = (torch.sigmoid(outputs) > 0.5).float()
 			predictions.extend(preds.cpu().numpy())
-			targets.extend(labels.cpu().numpy())
+			targets.extend(labels.long().cpu().numpy() if uses_low_loss else labels.float().cpu().numpy())
 
 	epoch_loss = running_loss / len(dataloader)
 	f1 = f1_score(targets, predictions, average='weighted', zero_division=0)

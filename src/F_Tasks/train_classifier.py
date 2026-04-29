@@ -26,6 +26,7 @@ from src.E_Aux_Scripts.classifier_helpers import (
     resume_from_checkpoint,
     plot_training_metrics
 )
+from src.E_Aux_Scripts.LOW import LOWLoss
 
 
 def build_base_setup(args):
@@ -178,14 +179,17 @@ def main():
             # Create optimizer with appropriate learning rates
             optimizer = create_optimizer(model, args)
 
-            classes_distribution = train_dataset.get_class_distribution()
-            if classes_distribution[1] > 0:
-                pos_weight = round(classes_distribution[0] / classes_distribution[1], 3)
-            else:
-                pos_weight = 1.0
-                log.warning("NO POSITIVE SAMPLES IN THE TRAINING SET!")
-            log.info(f"Class distribution in training set: {classes_distribution}, using pos_weight={pos_weight} for BCEWithLogitsLoss")
-            criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight)).to(device)
+            if args.loss == 'bce':
+                classes_distribution = train_dataset.get_class_distribution()
+                if classes_distribution[1] > 0:
+                    pos_weight = round(classes_distribution[0] / classes_distribution[1], 3)
+                else:
+                    pos_weight = 1.0
+                    log.warning("NO POSITIVE SAMPLES IN THE TRAINING SET!")
+                log.info(f"Class distribution in training set: {classes_distribution}, using pos_weight={pos_weight} for BCEWithLogitsLoss.")
+                criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight)).to(device)
+            elif args.loss == 'low':
+                criterion = LOWLoss(lamb=0.1).to(device)
             log.debug("Loss function created")
 
             # Learning rate scheduler
@@ -330,6 +334,7 @@ def create_argparser():
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--multiple_seeds', action='store_true', default=False)
+    parser.add_argument('--loss', type=str, choices=['bce', 'low'], default='bce', help="Loss function to use during training (default: Cross-Entropy Loss).")
 
     subparsers = parser.add_subparsers(dest='model_type', required=True)
 

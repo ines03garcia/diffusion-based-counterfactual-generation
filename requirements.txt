@@ -28,6 +28,7 @@ seaborn
 scikit-image
 omegaconf
 deepsig
+cvxopt
 # For the Mammo-CLIP
 imgaug
 xlrd
