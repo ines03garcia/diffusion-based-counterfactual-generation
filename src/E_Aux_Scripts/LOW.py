@@ -32,7 +32,7 @@ class LOWLoss(torch.nn.Module):
         self.lamb = lamb # higher lamb means more smoothness -> weights closer to 1
         self.loss = torch.nn.CrossEntropyLoss(reduction='none')  # replace this with any loss with "reduction='none'"
 
-    def forward(self, logits, target):
+    def forward(self, logits, target, return_details=False):
         # Compute loss gradient norm
         output_d = logits.detach()
         loss_d = torch.mean(self.loss(output_d.requires_grad_(True), target), dim=0)
@@ -43,5 +43,8 @@ class LOWLoss(torch.nn.Module):
         weights = compute_weights(lossgrad, self.lamb)
         loss = self.loss(logits, target)
         loss = torch.mean(torch.mul(loss, weights), dim=0)
+
+        if return_details:
+            return loss, lossgrad.detach(), weights.detach()
 
         return loss

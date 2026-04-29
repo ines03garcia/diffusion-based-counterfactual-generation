@@ -1,4 +1,5 @@
 import argparse
+import csv
 import json
 import os
 import sys
@@ -56,6 +57,70 @@ def parse_and_validate_args():
         args.no_validation = True
 
     return args
+
+
+def save_low_scores(model, scoring_dataset, criterion, device, output_path, batch_size, num_workers, seed, log):
+    scoring_loader = DataLoader(
+        scoring_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    rows = []
+    model.eval()
+
+    with torch.enable_grad():
+        sample_offset = 0
+        for batch in scoring_loader:
+            images, labels, image_ids = batch
+            images = images.to(device)
+            labels = labels.to(device)
+
+            model.zero_grad(set_to_none=True)
+            outputs = model(images)
+            _, lossgrad, weights = criterion(outputs, labels.long(), return_details=True)
+            sample_losses = criterion.loss(outputs, labels.long()).detach()
+
+            for batch_index, (image_id, loss_value, grad_value, weight_value) in enumerate(
+                zip(image_ids, sample_losses, lossgrad, weights)
+            ):
+                image_path = scoring_dataset.image_paths[sample_offset + batch_index]
+                rows.append({
+                    "rank": 0,
+                    "image_id": image_id,
+                    "label": int(labels[batch_index].item()),
+                    "sample_loss": round(float(loss_value.item()), 4),
+                    "loss_grad_norm": round(float(grad_value.item()), 4),
+                    "low_score": round(float(weight_value.item()), 4),
+                })
+
+            sample_offset += len(image_ids)
+
+    rows.sort(key=lambda row: row["low_score"], reverse=True)
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", newline="") as csv_file:
+        writer = csv.DictWriter(
+            csv_file,
+            fieldnames=[
+                "rank",
+                "image_id",
+                "image_path",
+                "label",
+                "sample_loss",
+                "loss_grad_norm",
+                "low_score",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+    log.info(f"Saved LOW scores for {len(rows)} images to: {output_path}")
+
 
 def main():
     args = parse_and_validate_args()
@@ -298,6 +363,29 @@ def main():
             # Save training history
             with open(os.path.join(fold_results_dir, 'training_history.json'), 'w') as f:
                 json.dump(history, f, indent=2)
+
+            if args.loss == 'low':
+                scoring_dataset = VinDrMammo_dataset(
+                    split="train",
+                    label=args.training_category,
+                    cf_dir=args.cf_dir if args.use_counterfactuals else None,
+                    cv_fold=fold if not args.no_validation else None,
+                    data_dir=args.data_dir,
+                    metadata_path=args.metadata_path,
+                    transform=val_transform,
+                )
+                low_scores_path = os.path.join(fold_results_dir, 'low_scores.csv')
+                save_low_scores(
+                    model,
+                    scoring_dataset,
+                    criterion,
+                    device,
+                    low_scores_path,
+                    batch_size=args.batch_size,
+                    num_workers=args.num_workers,
+                    seed=seed,
+                    log=log,
+                )
 
             # Create training metrics plots
             if len(history['train_loss']) > 0 and not args.no_validation:  # Plot only when validation metrics exist
