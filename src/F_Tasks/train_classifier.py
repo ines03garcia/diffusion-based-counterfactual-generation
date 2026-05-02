@@ -422,7 +422,7 @@ def create_argparser():
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--multiple_seeds', action='store_true', default=False)
-    parser.add_argument('--loss', type=str, choices=['bce', 'low'], default='bce', help="Loss function to use during training (default: Cross-Entropy Loss).")
+    parser.add_argument('--loss', type=str, choices=['bce', 'low'], default='bce', help="Loss function to use during training (default: Binary Cross-Entropy Loss with logits).")
 
     subparsers = parser.add_subparsers(dest='model_type', required=True)
 
