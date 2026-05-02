@@ -222,6 +222,8 @@ def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=False
 			labels_for_loss = labels.long()
 		else:
 			labels_for_loss = labels.float()
+			if not labels_for_loss.shape == outputs.shape:
+				labels_for_loss = labels_for_loss.view(-1, 1)
 		
 		if use_mixup:
 			loss = criterion(outputs, mixed_labels)
