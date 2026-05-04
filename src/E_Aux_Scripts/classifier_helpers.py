@@ -444,88 +444,51 @@ def save_roc_curve(fpr, tpr, roc_auc, output_path):
 	plt.savefig(output_path, dpi=300, bbox_inches="tight")
 	plt.close(fig)
 
-def plot_training_metrics(history, exp_dir, validation=True):
+def plot_training_metrics(history, exp_dir, validation=True, use_mixup=False):
 	"""Create and save plots showing training metrics evolution"""
 	plt.style.use('default')
-	
-	# Keep only loss and F1 visualizations
-	fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-	fig.suptitle(f'Training Metrics Evolution', fontsize=16, fontweight='bold')
-	
 	epochs = range(1, len(history['train_loss']) + 1)
 	
-	# Plot 1: Loss
-	axes[0].plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
-	if validation:
-		axes[0].plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
-		axes[0].set_title('Training and Validation Loss', fontweight='bold')
-	else:
-		axes[0].set_title('Training Loss', fontweight='bold')
-	axes[0].set_xlabel('Epochs')
-	axes[0].set_ylabel('Loss')
-	axes[0].legend()
-	axes[0].grid(True, alpha=0.3)
+	if not use_mixup:
+		# F1 plot
+		fig_f1 = plt.figure(figsize=(10, 6))
+		if 'train_f1' in history:
+			plt.plot(epochs, history['train_f1'], 'b-', label='Training F1', linewidth=2)
+		if validation and 'val_f1' in history:
+			plt.plot(epochs, history['val_f1'], 'g-', label='Validation F1', linewidth=2)
+		
+		plt.title('F1 Score Evolution', fontweight='bold', fontsize=14)
+		plt.xlabel('Epochs')
+		plt.ylabel('F1 Score')
+		plt.ylim(0, 1)
+		plt.legend()
+		plt.grid(True, alpha=0.3)
+		
+		plt.tight_layout()
+		f1_plot_path = os.path.join(exp_dir, 'f1_evolution.png')
+		plt.savefig(f1_plot_path, dpi=300, bbox_inches='tight')
+		print(f"F1 plot saved to: {f1_plot_path}")
+		plt.close(fig_f1)
 
-	# Plot 2: F1
-	if 'train_f1' in history:
-		axes[1].plot(epochs, history['train_f1'], 'b-', label='Training F1', linewidth=2)
-	if validation:
-		axes[1].plot(epochs, history['val_f1'], 'g-', label='Validation F1', linewidth=2)
-		axes[1].set_title('Training and Validation F1 Score', fontweight='bold')
-	else:
-		axes[1].set_title('Training F1 Score', fontweight='bold')
-	axes[1].set_xlabel('Epochs')
-	axes[1].set_ylabel('F1 Score')
-	axes[1].legend()
-	axes[1].grid(True, alpha=0.3)
-	axes[1].set_ylim(0, 1)
-	
-	plt.tight_layout()
-	
-	# Save the plot
-	plot_path = os.path.join(exp_dir, 'training_metrics.png')
-	plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-	print(f"Training metrics plot saved to: {plot_path}")
-	
-	# Also create individual plots for each metric
-	create_individual_plots(history, exp_dir, validation)
-	
-	plt.close(fig)  # Close to free memory
-
-
-def create_individual_plots(history, exp_dir, validation=True):
-	"""Create individual plots for each metric"""
-	epochs = range(1, len(history['train_loss']) + 1)
-	
-	# Individual Loss plot
-	plt.figure(figsize=(10, 6))
+	# Loss plot
+	fig_loss = plt.figure(figsize=(10, 6))
 	if 'train_loss' in history:
 		plt.plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
 	if validation and 'val_loss' in history:
 		plt.plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
-	plt.title(f'Loss Evolution', fontweight='bold', fontsize=14)
+	
+	plt.title('Loss Evolution', fontweight='bold', fontsize=14)
 	plt.xlabel('Epochs')
 	plt.ylabel('Loss')
-	plt.legend()
-	plt.grid(True, alpha=0.3)
-	plt.tight_layout()
-	plt.savefig(os.path.join(exp_dir, 'loss_evolution.png'), dpi=300, bbox_inches='tight')
-	plt.close()
-	
-	# Individual F1 plot
-	plt.figure(figsize=(10, 6))
-	if 'train_f1' in history:
-		plt.plot(epochs, history['train_f1'], 'b-', label='Training F1 Score', linewidth=2)
-	if validation and 'val_f1' in history:
-		plt.plot(epochs, history['val_f1'], 'g-', label='Validation F1 Score', linewidth=2)
-	plt.title(f'F1 Score Evolution', fontweight='bold', fontsize=14)
-	plt.xlabel('Epochs')
-	plt.ylabel('F1 Score')
-	plt.legend()
-	plt.grid(True, alpha=0.3)
 	plt.ylim(0, 1)
-	plt.tight_layout()
-	plt.savefig(os.path.join(exp_dir, 'f1_evolution.png'), dpi=300, bbox_inches='tight')
-	plt.close()
+	plt.legend()
+	plt.grid(True, alpha=0.3)
 	
-	log.info(f"Individual metric plots saved to: {exp_dir}")
+	plt.tight_layout()
+	loss_plot_path = os.path.join(exp_dir, 'loss_evolution.png')
+	plt.savefig(loss_plot_path, dpi=300, bbox_inches='tight')
+	print(f"Loss plot saved to: {loss_plot_path}")
+	plt.close(fig_loss)
+		
+
+		

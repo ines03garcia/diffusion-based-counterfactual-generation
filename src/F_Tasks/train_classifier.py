@@ -394,10 +394,7 @@ def main():
 
             # Create training metrics plots
             if len(history['train_loss']) > 0:
-                if args.no_validation:
-                    plot_training_metrics(history, fold_results_dir, validation=False)
-                else:
-                    plot_training_metrics(history, fold_results_dir, validation=True)
+                plot_training_metrics(history, fold_results_dir, validation=(not args.no_validation), use_mixup=args.use_mixup)
 
             log.info(f"\n{'='*15}Training completed successfully!{'='*15}")
             if not args.no_validation:
