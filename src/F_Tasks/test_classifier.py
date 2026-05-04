@@ -29,9 +29,74 @@ from src.E_Aux_Scripts.classifier_helpers import (
 )
 
 
+def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, project_root):
+	"""Aggregate existing test outputs under `output_path` (seed_/fold_ subfolders).
+
+	Returns the path to the aggregated output file written.
+	"""
+	if not (multiple_seeds or cross_validation):
+		raise ValueError("--output_path requires --multiple_seeds or --cross-validation to aggregate results")
+
+	if not os.path.isabs(output_path):
+		output_path = os.path.join(project_root, output_path)
+
+	if not os.path.isdir(output_path):
+		raise ValueError(f"Provided --output_path does not exist or is not a directory: {output_path}")
+
+	# Discover child result folders
+	child_prefix = "seed_" if multiple_seeds else "fold_"
+	child_dirs = sorted([
+		d for d in os.listdir(output_path)
+		if d.startswith(child_prefix) and os.path.isdir(os.path.join(output_path, d))
+	])
+	if not child_dirs:
+		raise FileNotFoundError(f"No '{child_prefix}*' subdirectories found under {output_path}")
+
+	metrics_list = []
+	for d in child_dirs:
+		metrics_file = os.path.join(output_path, d, "test_metrics.json")
+		if not os.path.exists(metrics_file):
+			print(f"Skipping {d}: missing {metrics_file}")
+			continue
+		with open(metrics_file, 'r') as fh:
+			metrics_list.append(json.load(fh))
+
+	if not metrics_list:
+		raise FileNotFoundError(f"No test_metrics.json files found under {output_path}")
+
+	# Aggregate numeric metrics (mean ± std)
+	agg_metrics = {}
+	for metric_name in metrics_list[0].keys():
+		if metric_name in ["dataset", "model_type", "checkpoint_path"]:
+			continue
+		metric_values = [m.get(metric_name) for m in metrics_list if metric_name in m]
+		if all(isinstance(v, (int, float)) for v in metric_values):
+			if metric_name == "num_samples":
+				agg_metrics[metric_name] = list(set(metric_values))
+				continue
+			agg_metrics[metric_name] = {
+				"mean": statistics.mean(metric_values),
+				"std": round(statistics.stdev(metric_values), 4) if len(metric_values) > 1 else 0.0,
+			}
+		else:
+			# skip non-numeric metrics
+			continue
+
+	agg_output_path = os.path.join(output_path, "aggregated_seed_metrics.json")
+	with open(agg_output_path, 'w') as fh:
+		json.dump(agg_metrics, fh, indent=2)
+	print(f"Aggregated metrics saved to: {agg_output_path}")
+	return agg_output_path
+
+
 def main():
 	parser = create_argparser()
 	args = parser.parse_args()
+
+	# If test output folder is provided, aggregate results and exit
+	if args.output_path is not None:
+		aggregate_existing_outputs(args.output_path, args.multiple_seeds, args.cross_validation, PROJECT_ROOT)
+		return
 
 	# Validate checkpoint arguments
 	if args.multiple_seeds:
@@ -153,7 +218,7 @@ def main():
 	else:
 		num_runs = 1
 
-	fold_metrics_list = []
+	metrics_list = []
 
 	for run_idx in range(num_runs):
 		# Resolve checkpoint path
@@ -195,11 +260,12 @@ def main():
 			metrics["seed"] = seed_name
 			log_dir = os.path.join(log.output_dir, seed_name)
 			os.makedirs(log_dir, exist_ok=True)
+			metrics_list.append(metrics)
 		elif num_runs > 1:
 			metrics["fold"] = run_idx
 			log_dir = os.path.join(log.output_dir, f"fold_{run_idx}")
 			os.makedirs(log_dir, exist_ok=True)
-			fold_metrics_list.append(metrics)
+			metrics_list.append(metrics)
 		else:
 			log_dir = log.output_dir
 
@@ -233,66 +299,37 @@ def main():
 		log.info(f"Saved ROC curve to: {roc_path}")
 		log.info(f"Saved predictions to: {preds_output_path}")
 
-	# Aggregate results across folds if requested
-	if args.cross_validation and args.aggregate_results and fold_metrics_list:
-		log.info("Aggregating results across folds...")
-		aggregate_dir = os.path.join(log.output_dir, "aggregated")
-		os.makedirs(aggregate_dir, exist_ok=True)
+	# Aggregate results across folds or seeds if requested
+	if args.aggregate_results and num_runs > 1:
+		if args.multiple_seeds:
+			agg_key = "seed"
+		else:
+			agg_key = "fold"
+		log.info(f"Aggregating metrics across {agg_key}s...")
 
-		percentage_metrics = {
-			"accuracy",
-			"balanced_accuracy",
-			"precision",
-			"recall",
-			"f1_score",
-			"specificity",
-			"roc_auc",
-		}
-		metric_baselines = {
-			"accuracy": 50.0,
-			"balanced_accuracy": 50.0,
-			"precision": 50.0,
-			"recall": 50.0,
-			"f1_score": 50.0,
-			"specificity": 50.0,
-			"roc_auc": 50.0,
-			"log_loss": math.log(2.0),
-		}
-		
-		# Collect all metrics keys (excluding fold, dataset, model_type, checkpoint_path)
-		metric_keys = set()
-		for fold_metrics in fold_metrics_list:
-			for key in fold_metrics.keys():
-				if key not in ["fold", "dataset", "model_type", "checkpoint_path", "num_samples"]:
-					if isinstance(fold_metrics[key], (int, float)):
-						metric_keys.add(key)
-		
-		# Calculate means and stds
-		aggregated_metrics = {
-			"dataset": args.dataset,
-			"model_type": args.model_type,
-			"num_folds": num_runs,
-		}
-		
-		for metric_key in sorted(metric_keys):
-			values = [fold_metrics[metric_key] for fold_metrics in fold_metrics_list if metric_key in fold_metrics]
-			if values:
-				mean_value = sum(values) / len(values)
-				std_value = statistics.stdev(values) if len(values) > 1 else 0.0
-				if metric_key in percentage_metrics:
-					aggregated_metrics[metric_key] = f"{mean_value:.1f} +- {std_value:.2f}"
-				elif metric_key == "log_loss":
-					aggregated_metrics[metric_key] = f"{mean_value:.3f} +- {std_value:.3f}"
-				else:
-					aggregated_metrics[metric_key] = f"{mean_value:.3f} +- {std_value:.3f}"
-		
+		# Compute aggregated metrics
+		agg_metrics = {}
+		for metric_name in metrics_list[0].keys():
+			if metric_name in ["dataset", "model_type", "checkpoint_path"]:
+				continue  # Skip non-numeric metadata fields
+			metric_values = [m[metric_name] for m in metrics_list]
+			if all(isinstance(v, (int, float)) for v in metric_values):
+				if metric_name == "num_samples":
+					agg_metrics[metric_name] = metric_values 
+					continue
+				agg_metrics[metric_name] = {
+					"mean": statistics.mean(metric_values),
+					"std": round(statistics.stdev(metric_values), 4) if len(metric_values) > 1 else 0.0,
+				}
+				log.info(f"{metric_name}: {agg_metrics[metric_name]['mean']:.4f} ± {agg_metrics[metric_name]['std']:.4f}")
+			else:
+				log.warning(f"Skipping aggregation for non-numeric metric: {metric_name}")
+
 		# Save aggregated metrics
-		agg_metrics_path = os.path.join(aggregate_dir, "test_metrics.json")
-		with open(agg_metrics_path, "w") as f:
-			json.dump(aggregated_metrics, f, indent=2)
-		
-		log.info(f"Aggregated metrics saved to: {agg_metrics_path}")
-		log.info(f"Aggregated metrics: {json.dumps(aggregated_metrics, indent=2)}")
+		agg_output_path = os.path.join(log.output_dir, f"aggregated_{agg_key}_metrics.json")
+		with open(agg_output_path, "w") as f:
+			json.dump(agg_metrics, f, indent=2)
+		log.info(f"Saved aggregated metrics to: {agg_output_path}")
 
 
 def create_argparser():
@@ -320,6 +357,7 @@ def create_argparser():
 	parser.add_argument("--aggregate_results", action="store_true", default=False, help="Aggregate metrics across folds after testing")
 	parser.add_argument("--checkpoint_dir", type=str, default=None)
 	parser.add_argument("--checkpoint_path", type=str, default=None)
+	parser.add_argument("--output_path", type=str, default=None, help="Path to existing test output folder to aggregate results (used with --multiple_seeds or --cross-validation)")
 	parser.add_argument("--num_workers", type=int, default=4)
 	parser.add_argument("--pretrained", action="store_true", default=True)
 	parser.add_argument("--seed", type=int, default=0)
