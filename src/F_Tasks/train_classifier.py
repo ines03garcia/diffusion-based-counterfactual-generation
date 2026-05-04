@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import time
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
@@ -293,6 +294,7 @@ def main():
                 history['val_f1'] = []
 
             for epoch in range(start_epoch, args.epochs):
+                epoch_start_time = time.time()
                 log.info(f"\n{'='*15}Epoch {epoch+1}/{args.epochs}{'='*15}")
 
                 # Gradual unfreezing
@@ -348,6 +350,9 @@ def main():
                     if patience_counter >= patience:
                         log.info(f"Early stopping triggered after {epoch+1} epochs")
                         break
+                
+                epoch_end_time = time.time()
+                log.info(f"Epoch {epoch+1} completed in {epoch_end_time - epoch_start_time:.2f} seconds.")
 
             if args.no_validation:
                 # Save final model when no validation is used
