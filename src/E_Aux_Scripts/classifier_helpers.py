@@ -444,11 +444,11 @@ def save_roc_curve(fpr, tpr, roc_auc, output_path):
 	plt.savefig(output_path, dpi=300, bbox_inches="tight")
 	plt.close(fig)
 
-def plot_training_metrics(history, exp_dir):
+def plot_training_metrics(history, exp_dir, validation=True):
 	"""Create and save plots showing training metrics evolution"""
 	plt.style.use('default')
 	
-	# Keep only loss and F1 (train + validation) visualizations
+	# Keep only loss and F1 visualizations
 	fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 	fig.suptitle(f'Training Metrics Evolution', fontsize=16, fontweight='bold')
 	
@@ -456,8 +456,11 @@ def plot_training_metrics(history, exp_dir):
 	
 	# Plot 1: Loss
 	axes[0].plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
-	axes[0].plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
-	axes[0].set_title('Training and Validation Loss', fontweight='bold')
+	if validation:
+		axes[0].plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+		axes[0].set_title('Training and Validation Loss', fontweight='bold')
+	else:
+		axes[0].set_title('Training Loss', fontweight='bold')
 	axes[0].set_xlabel('Epochs')
 	axes[0].set_ylabel('Loss')
 	axes[0].legend()
@@ -466,8 +469,11 @@ def plot_training_metrics(history, exp_dir):
 	# Plot 2: F1
 	if 'train_f1' in history:
 		axes[1].plot(epochs, history['train_f1'], 'b-', label='Training F1', linewidth=2)
-	axes[1].plot(epochs, history['val_f1'], 'g-', label='Validation F1', linewidth=2)
-	axes[1].set_title('Training and Validation F1 Score', fontweight='bold')
+	if validation:
+		axes[1].plot(epochs, history['val_f1'], 'g-', label='Validation F1', linewidth=2)
+		axes[1].set_title('Training and Validation F1 Score', fontweight='bold')
+	else:
+		axes[1].set_title('Training F1 Score', fontweight='bold')
 	axes[1].set_xlabel('Epochs')
 	axes[1].set_ylabel('F1 Score')
 	axes[1].legend()
@@ -482,19 +488,21 @@ def plot_training_metrics(history, exp_dir):
 	print(f"Training metrics plot saved to: {plot_path}")
 	
 	# Also create individual plots for each metric
-	create_individual_plots(history, exp_dir)
+	create_individual_plots(history, exp_dir, validation)
 	
 	plt.close(fig)  # Close to free memory
 
 
-def create_individual_plots(history, exp_dir):
+def create_individual_plots(history, exp_dir, validation=True):
 	"""Create individual plots for each metric"""
 	epochs = range(1, len(history['train_loss']) + 1)
 	
 	# Individual Loss plot
 	plt.figure(figsize=(10, 6))
-	plt.plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
-	plt.plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+	if 'train_loss' in history:
+		plt.plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
+	if validation and 'val_loss' in history:
+		plt.plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
 	plt.title(f'Loss Evolution', fontweight='bold', fontsize=14)
 	plt.xlabel('Epochs')
 	plt.ylabel('Loss')
@@ -508,7 +516,8 @@ def create_individual_plots(history, exp_dir):
 	plt.figure(figsize=(10, 6))
 	if 'train_f1' in history:
 		plt.plot(epochs, history['train_f1'], 'b-', label='Training F1 Score', linewidth=2)
-	plt.plot(epochs, history['val_f1'], 'g-', label='Validation F1 Score', linewidth=2)
+	if validation and 'val_f1' in history:
+		plt.plot(epochs, history['val_f1'], 'g-', label='Validation F1 Score', linewidth=2)
 	plt.title(f'F1 Score Evolution', fontweight='bold', fontsize=14)
 	plt.xlabel('Epochs')
 	plt.ylabel('F1 Score')
