@@ -38,8 +38,12 @@ def build_base_setup(args):
         mode = "cross-validation"
     elif args.multiple_seeds:
         mode = "multiple_seeds"
+    elif args.single_seed and args.no_validation:
+        mode = "single_seed_no_validation"
+    elif args.single_seed:
+        mode = "single_seed"
     else:
-        mode = "other"
+        mode = "unknown_mode"
         
     return "/".join([augmentation_mode, mode])
 
@@ -50,8 +54,10 @@ def parse_and_validate_args():
 
     if args.cross_validation and args.multiple_seeds:
         parser.error("Use only one mode: --cross-validation OR --multiple_seeds.")
-    if not args.cross_validation and not args.multiple_seeds:
-        parser.error("Enable one mode: --cross-validation or --multiple_seeds.")
+    elif args.multiple_seeds and args.single_seed:
+        parser.error("Use only one mode: --multiple_seeds OR --single_seed.")
+    if not args.cross_validation and not args.multiple_seeds and not args.single_seed:
+        parser.error("Enable one mode: --cross-validation, --multiple_seeds, or --single_seed.")
 
     # Multi-seed runs are training-only (no validation split).
     if args.multiple_seeds:
@@ -121,6 +127,7 @@ def save_low_scores(model, scoring_dataset, criterion, device, output_path, batc
         writer.writerows(rows)
 
     log.info(f"Saved LOW scores for {len(rows)} images to: {output_path}")
+    exit(1)
 
 
 def main():
@@ -427,6 +434,7 @@ def create_argparser():
     parser.add_argument("--resume_from_checkpoint", type=str, default=None)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--multiple_seeds', action='store_true', default=False)
+    parser.add_argument('--single_seed', action='store_true', default=False, help='Train with a single seed (default mode)')
     parser.add_argument('--loss', type=str, choices=['bce', 'low'], default='bce', help="Loss function to use during training (default: Binary Cross-Entropy Loss with logits).")
 
     subparsers = parser.add_subparsers(dest='model_type', required=True)
