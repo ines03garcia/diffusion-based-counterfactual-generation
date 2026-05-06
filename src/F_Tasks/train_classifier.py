@@ -66,7 +66,7 @@ def parse_and_validate_args():
     return args
 
 
-def save_low_scores(model, scoring_dataset, criterion, device, output_path, batch_size, num_workers, seed, log):
+def save_cf_low_scores(model, scoring_dataset, criterion, device, output_path, batch_size, num_workers, seed, log):
     scoring_loader = DataLoader(
         scoring_dataset,
         batch_size=batch_size,
@@ -93,7 +93,6 @@ def save_low_scores(model, scoring_dataset, criterion, device, output_path, batc
             for batch_index, (image_id, loss_value, grad_value, weight_value) in enumerate(
                 zip(image_ids, sample_losses, lossgrad, weights)
             ):
-                image_path = scoring_dataset.image_paths[sample_offset + batch_index]
                 rows.append({
                     "rank": 0,
                     "image_id": image_id,
@@ -116,7 +115,6 @@ def save_low_scores(model, scoring_dataset, criterion, device, output_path, batc
             fieldnames=[
                 "rank",
                 "image_id",
-                "image_path",
                 "label",
                 "sample_loss",
                 "loss_grad_norm",
@@ -376,18 +374,18 @@ def main():
             with open(os.path.join(fold_results_dir, 'training_history.json'), 'w') as f:
                 json.dump(history, f, indent=2)
 
-            if args.loss == 'low':
+            if args.loss == 'low' and args.use_counterfactuals:
                 scoring_dataset = VinDrMammo_dataset(
                     split="train",
-                    label=args.training_category,
-                    cf_dir=args.cf_dir if args.use_counterfactuals else None,
+                    label=None,
+                    cf_dir=args.cf_dir,
                     cv_fold=fold if not args.no_validation else None,
                     data_dir=args.data_dir,
                     metadata_path=args.metadata_path,
                     transform=val_transform,
                 )
                 low_scores_path = os.path.join(fold_results_dir, 'low_scores.csv')
-                save_low_scores(
+                save_cf_low_scores(
                     model,
                     scoring_dataset,
                     criterion,
