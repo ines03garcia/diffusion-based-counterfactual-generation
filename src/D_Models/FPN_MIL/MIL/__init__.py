@@ -67,7 +67,7 @@ def build_model(args):
                     inst_encoder=feature_extractor,
                     embedding_size=num_chs,
                     sigmoid_func = False, 
-                    num_classes=1,
+                    num_classes=args.n_class,
                     drop_classhead=args.drop_classhead,
                     map_prob_func = args.map_prob_func,
                     # MIL Encoder args
