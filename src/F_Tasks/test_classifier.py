@@ -30,7 +30,13 @@ from src.E_Aux_Scripts.classifier_helpers import (
 )
 
 
-def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, project_root):
+def fixed_recall_suffix(fixed_recall, fixed_recall_value):
+	if not fixed_recall:
+		return ""
+	return f"_fixed_recall_{fixed_recall_value:.2f}".replace(".", "p")
+
+
+def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, project_root, fixed_recall=False, fixed_recall_value=0.80):
 	"""Aggregate existing test outputs under `output_path` (seed_/fold_ subfolders).
 
 	Returns the path to the aggregated output file written.
@@ -83,7 +89,10 @@ def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, pr
 			# skip non-numeric metrics
 			continue
 
-	agg_output_path = os.path.join(output_path, "aggregated_seed_metrics.json")
+	agg_output_path = os.path.join(
+		output_path,
+		f"aggregated_seed_metrics{fixed_recall_suffix(fixed_recall, fixed_recall_value)}.json",
+	)
 	with open(agg_output_path, 'w') as fh:
 		json.dump(agg_metrics, fh, indent=2)
 	print(f"Aggregated metrics saved to: {agg_output_path}")
@@ -96,7 +105,14 @@ def main():
 
 	# If test output folder is provided, aggregate results and exit
 	if args.output_path is not None:
-		aggregate_existing_outputs(args.output_path, args.multiple_seeds, args.cross_validation, PROJECT_ROOT)
+		aggregate_existing_outputs(
+			args.output_path,
+			args.multiple_seeds,
+			args.cross_validation,
+			PROJECT_ROOT,
+			fixed_recall=args.fixed_recall,
+			fixed_recall_value=args.fixed_recall_value,
+		)
 		return
 
 	if args.fixed_recall and not (0.0 < args.fixed_recall_value <= 1.0):
@@ -288,7 +304,10 @@ def main():
 		if not args.fixed_recall:
 			save_roc_curve(fpr, tpr, roc_auc, roc_path)
 
-		metrics_output_path = os.path.join(log_dir, "test_metrics.json")
+		metrics_filename = "test_metrics.json"
+		if args.fixed_recall:
+			metrics_filename = f"test_metrics{fixed_recall_suffix(True, args.fixed_recall_value)}.json"
+		metrics_output_path = os.path.join(log_dir, metrics_filename)
 		with open(metrics_output_path, "w") as f:
 			json.dump(metrics, f, indent=2)
 
@@ -341,7 +360,10 @@ def main():
 				log.warning(f"Skipping aggregation for non-numeric metric: {metric_name}")
 
 		# Save aggregated metrics
-		agg_output_path = os.path.join(log.output_dir, f"aggregated_{agg_key}_metrics.json")
+		agg_output_path = os.path.join(
+			log.output_dir,
+			f"aggregated_{agg_key}_metrics{fixed_recall_suffix(args.fixed_recall, args.fixed_recall_value)}.json",
+		)
 		with open(agg_output_path, "w") as f:
 			json.dump(agg_metrics, f, indent=2)
 		log.info(f"Saved aggregated metrics to: {agg_output_path}")
