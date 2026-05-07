@@ -125,7 +125,6 @@ def save_cf_low_scores(model, scoring_dataset, criterion, device, output_path, b
         writer.writerows(rows)
 
     log.info(f"Saved LOW scores for {len(rows)} images to: {output_path}")
-    exit(1)
 
 
 def main():
