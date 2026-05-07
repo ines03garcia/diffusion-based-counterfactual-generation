@@ -15,6 +15,7 @@ from sklearn.metrics import (
 	confusion_matrix,
 	ConfusionMatrixDisplay,
 	log_loss,
+	precision_recall_curve,
 	roc_curve,
 	auc,
 )
@@ -410,6 +411,54 @@ def compute_metrics(targets, preds, probs):
 	}
 
 	return metrics, cm, fpr, tpr, roc_auc
+
+
+def compute_fixed_recall_metrics(targets, probs, target_recall=0.80):
+	def to_pct(value):
+		return round(float(value) * 100.0, 1)
+
+	targets = np.asarray(targets, dtype=np.int32)
+	probs = np.asarray(probs, dtype=np.float32)
+
+	if len(np.unique(targets)) < 2 or int(np.sum(targets)) == 0:
+		raise ValueError("Fixed-recall metrics require at least one positive and one negative sample in the test set.")
+
+	precision, recall, thresholds = precision_recall_curve(targets, probs)
+	recall_candidates = np.where(recall[1:] >= target_recall)[0]
+	if len(recall_candidates) == 0:
+		chosen_index = 0
+	else:
+		chosen_index = int(recall_candidates[-1])
+
+	decision_threshold = float(thresholds[chosen_index])
+	preds = (probs >= decision_threshold).astype(np.int32)
+
+	cm = confusion_matrix(targets, preds, labels=[0, 1])
+	tn, fp, fn, tp = cm.ravel()
+
+	specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+	precision_at_threshold = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+	recall_at_threshold = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
+	metrics = {
+		"fixed_recall_target": round(float(target_recall), 3),
+		"decision_threshold": round(float(decision_threshold), 6),
+		"accuracy": to_pct(float(accuracy_score(targets, preds))),
+		"balanced_accuracy": to_pct(float(balanced_accuracy_score(targets, preds))),
+		"precision": to_pct(float(precision_at_threshold)),
+		"recall": to_pct(float(recall_at_threshold)),
+		"f1_score": to_pct(float(f1_score(targets, preds, zero_division=0))),
+		"specificity": to_pct(float(specificity)),
+		"confusion_matrix": {
+			"tn": int(tn),
+			"fp": int(fp),
+			"fn": int(fn),
+			"tp": int(tp),
+		},
+		"num_samples": int(len(targets)),
+	}
+
+	return metrics, cm, preds
 
 
 def save_confusion_matrix(cm, output_path):

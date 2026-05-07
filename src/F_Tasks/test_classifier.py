@@ -24,6 +24,7 @@ from src.E_Aux_Scripts.classifier_helpers import (
     load_checkpoint_weights,
     run_inference,
     compute_metrics,
+	compute_fixed_recall_metrics,
     save_confusion_matrix,
     save_roc_curve
 )
@@ -97,6 +98,9 @@ def main():
 	if args.output_path is not None:
 		aggregate_existing_outputs(args.output_path, args.multiple_seeds, args.cross_validation, PROJECT_ROOT)
 		return
+
+	if args.fixed_recall and not (0.0 < args.fixed_recall_value <= 1.0):
+		raise ValueError("--fixed_recall_value must be in the interval (0, 1].")
 
 	# Validate checkpoint arguments
 	if args.multiple_seeds:
@@ -250,7 +254,16 @@ def main():
 		else:
 			log.info("Starting testing on the full test set...")
 		probs, preds, targets, image_ids = run_inference(model, test_loader, device)
-		metrics, cm, fpr, tpr, roc_auc = compute_metrics(targets, preds, probs)
+		if args.fixed_recall:
+			metrics, cm, preds = compute_fixed_recall_metrics(targets, probs, args.fixed_recall_value)
+			fpr = None
+			tpr = None
+			roc_auc = float("nan")
+			log.info(
+				f"Using fixed recall target {args.fixed_recall_value:.2f} with decision threshold {metrics['decision_threshold']:.6f}"
+			)
+		else:
+			metrics, cm, fpr, tpr, roc_auc = compute_metrics(targets, preds, probs)
 
 		metrics["dataset"] = args.dataset
 		metrics["model_type"] = args.model_type
@@ -272,7 +285,8 @@ def main():
 		cm_path = os.path.join(log_dir, "confusion_matrix.png")
 		roc_path = os.path.join(log_dir, "roc_curve.png")
 		save_confusion_matrix(cm, cm_path)
-		save_roc_curve(fpr, tpr, roc_auc, roc_path)
+		if not args.fixed_recall:
+			save_roc_curve(fpr, tpr, roc_auc, roc_path)
 
 		metrics_output_path = os.path.join(log_dir, "test_metrics.json")
 		with open(metrics_output_path, "w") as f:
@@ -296,7 +310,8 @@ def main():
 		log.info(f"Saved args to: {args_output_path}")
 		log.info(f"Saved metrics to: {metrics_output_path}")
 		log.info(f"Saved confusion matrix to: {cm_path}")
-		log.info(f"Saved ROC curve to: {roc_path}")
+		if not args.fixed_recall:
+			log.info(f"Saved ROC curve to: {roc_path}")
 		log.info(f"Saved predictions to: {preds_output_path}")
 
 	# Aggregate results across folds or seeds if requested
@@ -358,6 +373,8 @@ def create_argparser():
 	parser.add_argument("--checkpoint_dir", type=str, default=None)
 	parser.add_argument("--checkpoint_path", type=str, default=None)
 	parser.add_argument("--output_path", type=str, default=None, help="Path to existing test output folder to aggregate results (used with --multiple_seeds or --cross-validation)")
+	parser.add_argument("--fixed_recall", action="store_true", default=False, help="Evaluate the model at a fixed recall operating point and skip the full metric suite")
+	parser.add_argument("--fixed_recall_value", type=float, default=0.80, help="Target recall used when --fixed_recall is enabled")
 	parser.add_argument("--num_workers", type=int, default=4)
 	parser.add_argument("--pretrained", action="store_true", default=True)
 	parser.add_argument("--seed", type=int, default=0)
