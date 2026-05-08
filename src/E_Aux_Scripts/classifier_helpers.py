@@ -413,7 +413,7 @@ def compute_metrics(targets, preds, probs):
 	return metrics, cm, fpr, tpr, roc_auc
 
 
-def compute_fixed_recall_metrics(targets, probs, target_recall=0.80):
+def compute_fixed_specificity_metrics(targets, probs, target_specificity=0.80):
 	def to_pct(value):
 		return round(float(value) * 100.0, 1)
 
@@ -421,14 +421,19 @@ def compute_fixed_recall_metrics(targets, probs, target_recall=0.80):
 	probs = np.asarray(probs, dtype=np.float32)
 
 	if len(np.unique(targets)) < 2 or int(np.sum(targets)) == 0:
-		raise ValueError("Fixed-recall metrics require at least one positive and one negative sample in the test set.")
+		raise ValueError("Fixed-specificity metrics require at least one positive and one negative sample in the test set.")
 
-	precision, recall, thresholds = precision_recall_curve(targets, probs)
-	recall_candidates = np.where(recall[1:] >= target_recall)[0]
-	if len(recall_candidates) == 0:
+	# Get ROC curve data to find threshold for target specificity
+	fpr, tpr, thresholds = roc_curve(targets, probs)
+	
+	# Specificity = 1 - FPR, so find where FPR <= (1 - target_specificity)
+	target_fpr = 1.0 - target_specificity
+	fpr_candidates = np.where(fpr <= target_fpr)[0]
+	
+	if len(fpr_candidates) == 0:
 		chosen_index = 0
 	else:
-		chosen_index = int(recall_candidates[-1])
+		chosen_index = int(fpr_candidates[-1])
 
 	decision_threshold = float(thresholds[chosen_index])
 	preds = (probs >= decision_threshold).astype(np.int32)
@@ -441,7 +446,7 @@ def compute_fixed_recall_metrics(targets, probs, target_recall=0.80):
 	recall_at_threshold = tp / (tp + fn) if (tp + fn) > 0 else 0.0
 
 	metrics = {
-		"fixed_recall_target": round(float(target_recall), 3),
+		"fixed_specificity_target": round(float(target_specificity), 3),
 		"decision_threshold": round(float(decision_threshold), 6),
 		"accuracy": to_pct(float(accuracy_score(targets, preds))),
 		"balanced_accuracy": to_pct(float(balanced_accuracy_score(targets, preds))),

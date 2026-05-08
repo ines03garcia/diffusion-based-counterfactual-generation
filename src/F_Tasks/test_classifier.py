@@ -24,19 +24,19 @@ from src.E_Aux_Scripts.classifier_helpers import (
     load_checkpoint_weights,
     run_inference,
     compute_metrics,
-	compute_fixed_recall_metrics,
+	compute_fixed_specificity_metrics,
     save_confusion_matrix,
     save_roc_curve
 )
 
 
-def fixed_recall_suffix(fixed_recall, fixed_recall_value):
-	if not fixed_recall:
+def fixed_specificity_suffix(fixed_specificity, fixed_specificity_value):
+	if not fixed_specificity:
 		return ""
-	return f"_fixed_recall_{fixed_recall_value:.2f}".replace(".", "p")
+	return f"_fixed_specificity_{fixed_specificity_value:.2f}".replace(".", "p")
 
 
-def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, project_root, fixed_recall=False, fixed_recall_value=0.80):
+def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, project_root, fixed_specificity=False, fixed_specificity_value=0.80):
 	"""Aggregate existing test outputs under `output_path` (seed_/fold_ subfolders).
 
 	Returns the path to the aggregated output file written.
@@ -91,7 +91,7 @@ def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, pr
 
 	agg_output_path = os.path.join(
 		output_path,
-		f"aggregated_seed_metrics{fixed_recall_suffix(fixed_recall, fixed_recall_value)}.json",
+		f"aggregated_seed_metrics{fixed_specificity_suffix(fixed_specificity, fixed_specificity_value)}.json",
 	)
 	with open(agg_output_path, 'w') as fh:
 		json.dump(agg_metrics, fh, indent=2)
@@ -110,13 +110,13 @@ def main():
 			args.multiple_seeds,
 			args.cross_validation,
 			PROJECT_ROOT,
-			fixed_recall=args.fixed_recall,
-			fixed_recall_value=args.fixed_recall_value,
+			fixed_specificity=args.fixed_specificity,
+			fixed_specificity_value=args.fixed_specificity_value,
 		)
 		return
 
-	if args.fixed_recall and not (0.0 < args.fixed_recall_value <= 1.0):
-		raise ValueError("--fixed_recall_value must be in the interval (0, 1].")
+	if args.fixed_specificity and not (0.0 < args.fixed_specificity_value <= 1.0):
+		raise ValueError("--fixed_specificity_value must be in the interval (0, 1].")
 
 	# Validate checkpoint arguments
 	if args.multiple_seeds:
@@ -270,13 +270,13 @@ def main():
 		else:
 			log.info("Starting testing on the full test set...")
 		probs, preds, targets, image_ids = run_inference(model, test_loader, device)
-		if args.fixed_recall:
-			metrics, cm, preds = compute_fixed_recall_metrics(targets, probs, args.fixed_recall_value)
+		if args.fixed_specificity:
+			metrics, cm, preds = compute_fixed_specificity_metrics(targets, probs, args.fixed_specificity_value)
 			fpr = None
 			tpr = None
 			roc_auc = float("nan")
 			log.info(
-				f"Using fixed recall target {args.fixed_recall_value:.2f} with decision threshold {metrics['decision_threshold']:.6f}"
+				f"Using fixed specificity target {args.fixed_specificity_value:.2f} with decision threshold {metrics['decision_threshold']:.6f}"
 			)
 		else:
 			metrics, cm, fpr, tpr, roc_auc = compute_metrics(targets, preds, probs)
@@ -301,12 +301,12 @@ def main():
 		cm_path = os.path.join(log_dir, "confusion_matrix.png")
 		roc_path = os.path.join(log_dir, "roc_curve.png")
 		save_confusion_matrix(cm, cm_path)
-		if not args.fixed_recall:
+		if not args.fixed_specificity:
 			save_roc_curve(fpr, tpr, roc_auc, roc_path)
 
 		metrics_filename = "test_metrics.json"
-		if args.fixed_recall:
-			metrics_filename = f"test_metrics{fixed_recall_suffix(True, args.fixed_recall_value)}.json"
+		if args.fixed_specificity:
+			metrics_filename = f"test_metrics{fixed_specificity_suffix(True, args.fixed_specificity_value)}.json"
 		metrics_output_path = os.path.join(log_dir, metrics_filename)
 		with open(metrics_output_path, "w") as f:
 			json.dump(metrics, f, indent=2)
@@ -329,7 +329,7 @@ def main():
 		log.info(f"Saved args to: {args_output_path}")
 		log.info(f"Saved metrics to: {metrics_output_path}")
 		log.info(f"Saved confusion matrix to: {cm_path}")
-		if not args.fixed_recall:
+		if not args.fixed_specificity:
 			log.info(f"Saved ROC curve to: {roc_path}")
 		log.info(f"Saved predictions to: {preds_output_path}")
 
@@ -362,7 +362,7 @@ def main():
 		# Save aggregated metrics
 		agg_output_path = os.path.join(
 			log.output_dir,
-			f"aggregated_{agg_key}_metrics{fixed_recall_suffix(args.fixed_recall, args.fixed_recall_value)}.json",
+			f"aggregated_{agg_key}_metrics{fixed_specificity_suffix(args.fixed_specificity, args.fixed_specificity_value)}.json",
 		)
 		with open(agg_output_path, "w") as f:
 			json.dump(agg_metrics, f, indent=2)
@@ -395,8 +395,8 @@ def create_argparser():
 	parser.add_argument("--checkpoint_dir", type=str, default=None)
 	parser.add_argument("--checkpoint_path", type=str, default=None)
 	parser.add_argument("--output_path", type=str, default=None, help="Path to existing test output folder to aggregate results (used with --multiple_seeds or --cross-validation)")
-	parser.add_argument("--fixed_recall", action="store_true", default=False, help="Evaluate the model at a fixed recall operating point and skip the full metric suite")
-	parser.add_argument("--fixed_recall_value", type=float, default=0.80, help="Target recall used when --fixed_recall is enabled")
+	parser.add_argument("--fixed_specificity", action="store_true", default=False, help="Evaluate the model at a fixed specificity operating point and skip the full metric suite")
+	parser.add_argument("--fixed_specificity_value", type=float, default=0.80, help="Target specificity used when --fixed_specificity is enabled")
 	parser.add_argument("--num_workers", type=int, default=4)
 	parser.add_argument("--pretrained", action="store_true", default=True)
 	parser.add_argument("--seed", type=int, default=0)
