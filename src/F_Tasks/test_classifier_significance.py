@@ -6,17 +6,8 @@ from typing import List
 
 import numpy as np
 
+from src.E_Aux_Scripts.argument_parsers import create_significance_argparser, DEFAULT_METRICS
 
-DEFAULT_METRICS = [
-	"accuracy",
-	"balanced_accuracy",
-	"precision",
-	"recall",
-	"f1_score",
-	"specificity",
-	"roc_auc",
-	"log_loss",
-]
 
 LOWER_IS_BETTER_METRICS = {"log_loss"}
 
@@ -92,18 +83,7 @@ def compare_with_aso(values_baseline: List[float], values_cf: List[float], seed:
 
 
 def parse_args():
-	parser = argparse.ArgumentParser(description="Compare two classifier result directories with ASO.")
-	parser.add_argument("--baseline_aug", required=True, help="Directory or test_metrics.json file for baseline augmentation runs.")
-	parser.add_argument("--cf_aug", required=True, help="Directory or test_metrics.json file for counterfactual augmentation runs.")
-	parser.add_argument(
-		"--metrics",
-		nargs="*",
-		type=str,
-		default=DEFAULT_METRICS,
-		help="Metrics to compare from test_metrics.json. Defaults to all standard classification metrics.",
-	)
-	parser.add_argument("--seed", type=int, default=0, help="Random seed passed to ASO.")
-	parser.add_argument("--output_path", type=str, default=None, help="Optional JSON file to save the comparison result.")
+	parser = create_significance_argparser()
 	return parser.parse_args()
 
 

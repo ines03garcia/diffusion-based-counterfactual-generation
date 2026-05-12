@@ -1,4 +1,3 @@
-import argparse
 import json
 import math
 import os
@@ -28,6 +27,7 @@ from src.E_Aux_Scripts.classifier_helpers import (
     save_confusion_matrix,
     save_roc_curve
 )
+from src.E_Aux_Scripts.argument_parsers import create_test_argparser
 
 
 def fixed_specificity_suffix(fixed_specificity, fixed_specificity_value):
@@ -100,7 +100,7 @@ def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, pr
 
 
 def main():
-	parser = create_argparser()
+	parser = create_test_argparser()
 	args = parser.parse_args()
 
 	# If test output folder is provided, aggregate results and exit
@@ -368,97 +368,6 @@ def main():
 			json.dump(agg_metrics, f, indent=2)
 		log.info(f"Saved aggregated metrics to: {agg_output_path}")
 
-
-def create_argparser():
-	parser = argparse.ArgumentParser()
-	parser.add_argument("--dataset", type=str, choices=["vindr", "inbreast"], default="vindr")
-	parser.add_argument("--data_dir", type=str, default=None)
-	parser.add_argument("--metadata_path", type=str, default=None)
-	parser.add_argument(
-		"--testing_category",
-		type=str,
-		choices=["all", "healthy", "anomalous", "anomalous_with_findings"],
-		default="all",
-		help="Category of images to include in testing (VinDr only)",
-	)
-	parser.add_argument("--cf_dir", type=str, default=os.path.join(IMAGES_ROOT, "repaint_results"))
-	parser.add_argument(
-		"--use_counterfactuals",
-		action="store_true",
-		default=False,
-		help="Whether to include counterfactual examples during test loading (VinDr only)",
-	)
-
-	parser.add_argument("--cross-validation", action="store_true", default=False)
-	parser.add_argument("--multiple_seeds", action="store_true", default=False, help="Evaluate all seed_i/final_model.pth checkpoints under --checkpoint_path")
-	parser.add_argument("--aggregate_results", action="store_true", default=False, help="Aggregate metrics across folds after testing")
-	parser.add_argument("--checkpoint_dir", type=str, default=None)
-	parser.add_argument("--checkpoint_path", type=str, default=None)
-	parser.add_argument("--output_path", type=str, default=None, help="Path to existing test output folder to aggregate results (used with --multiple_seeds or --cross-validation)")
-	parser.add_argument("--fixed_specificity", action="store_true", default=False, help="Evaluate the model at a fixed specificity operating point and skip the full metric suite")
-	parser.add_argument("--fixed_specificity_value", type=float, default=0.80, help="Target specificity used when --fixed_specificity is enabled")
-	parser.add_argument("--num_workers", type=int, default=4)
-	parser.add_argument("--pretrained", action="store_true", default=True)
-	parser.add_argument("--seed", type=int, default=0)
-	parser.add_argument('--loss', type=str, choices=['bce', 'low'], default='bce', help="Loss function to use during inference (default: Binary Cross-Entropy Loss with logits).")
-
-	subparsers = parser.add_subparsers(dest="model_type", required=True)
-
-	convnext_parser = subparsers.add_parser("convnext")
-	convnext_parser.add_argument("--batch_size", type=int, default=16)
-
-	vit_parser = subparsers.add_parser("vit")
-	vit_parser.add_argument("--batch_size", type=int, default=16)
-
-	mammo_clip_parser = subparsers.add_parser("mammo-clip")
-	mammo_clip_parser.add_argument("--batch_size", type=int, default=8)
-	mammo_clip_parser.add_argument(
-		"--clip_chk_pt_path",
-		default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"),
-		type=str,
-		help="Path to Mammo-CLIP checkpoint used to initialize encoder",
-	)
-	mammo_clip_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
-
-	fpn_mil_parser = subparsers.add_parser("fpn-mil")
-	fpn_mil_parser.add_argument("--batch_size", type=int, default=8)
-	fpn_mil_parser.add_argument("--n_class", type=int, default=1)
-	fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b2-model-best-epoch-10.tar"), type=str)
-	fpn_mil_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b2_period_n_lp", type=str)
-	fpn_mil_parser.add_argument("--img-size", default=[512, 512], type=int, nargs="*")
-	fpn_mil_parser.add_argument("--feature_extraction", default="online", type=str)
-	fpn_mil_parser.add_argument("--feat_dim", default=352, type=int)
-	fpn_mil_parser.add_argument("--patching", action="store_true", default=True)
-	fpn_mil_parser.add_argument("--source_image", type=str, default="patches", choices=["patches", "full_image"])
-	fpn_mil_parser.add_argument("--patch_size", type=int, default=128)
-	fpn_mil_parser.add_argument("--overlap", type=float, nargs="*", default=[0.0])
-	fpn_mil_parser.add_argument("--mil_type", default="pyramidal_mil", choices=[None, "instance", "embedding", "pyramidal_mil"], type=str)
-	fpn_mil_parser.add_argument("--pooling_type", default="gated-attention", choices=["max", "mean", "attention", "gated-attention", "pma"], type=str)
-	fpn_mil_parser.add_argument("--type_mil_encoder", default="mlp", choices=["mlp", "sab", "isab"], type=str)
-	fpn_mil_parser.add_argument("--fcl_attention_dim", type=int, default=128)
-	fpn_mil_parser.add_argument("--map_prob_func", type=str, default="softmax", choices=["softmax", "sparsemax", "entmax", "alpha_entmax"])
-	fpn_mil_parser.add_argument("--fcl_encoder_dim", type=int, default=256)
-	fpn_mil_parser.add_argument("--sab_num_heads", type=int, default=4)
-	fpn_mil_parser.add_argument("--isab_num_heads", type=int, default=4)
-	fpn_mil_parser.add_argument("--pma_num_heads", type=int, default=1)
-	fpn_mil_parser.add_argument("--num_encoder_blocks", type=int, default=2)
-	fpn_mil_parser.add_argument("--trans_num_inds", type=int, default=20)
-	fpn_mil_parser.add_argument("--trans_layer_norm", type=bool, default=False)
-	fpn_mil_parser.add_argument("--multi_scale_model", type=str, choices=["fpn", "backbone_pyramid", "msp"], default="fpn")
-	fpn_mil_parser.add_argument("--scales", type=int, nargs="*", default=(16, 32, 128))
-	fpn_mil_parser.add_argument("--fpn_dim", type=int, default=256)
-	fpn_mil_parser.add_argument("--upsample_method", type=str, choices=["bilinear", "nearest"], default="nearest")
-	fpn_mil_parser.add_argument("--norm_fpn", type=bool, default=False)
-	fpn_mil_parser.add_argument("--deep_supervision", action="store_true", default=True)
-	fpn_mil_parser.add_argument("--type_scale_aggregator", type=str, choices=["concatenation", "max_p", "mean_p", "attention", "gated-attention"], default="gated-attention")
-	fpn_mil_parser.add_argument("--drop_classhead", type=float, default=0.0)
-	fpn_mil_parser.add_argument("--drop_attention_pool", type=float, default=0.0)
-	fpn_mil_parser.add_argument("--drop_mha", type=float, default=0.0)
-	fpn_mil_parser.add_argument("--fcl_dropout", type=float, default=0.0)
-	fpn_mil_parser.add_argument("--lamda", type=float, default=0.0)
-	fpn_mil_parser.add_argument("--nested_model", action="store_true", default=False)
-
-	return parser
 
 
 if __name__ == "__main__":
