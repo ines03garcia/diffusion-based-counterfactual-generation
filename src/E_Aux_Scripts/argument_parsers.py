@@ -22,7 +22,12 @@ def create_train_argparser():
     parser.add_argument('--metadata_path', type=str, default=os.path.join(METADATA_ROOT, "resized_df_512.json"))
     parser.add_argument('--training_category', type=str, choices=['all', 'healthy', 'anomalous', 'anomalous_with_findings'], default="all", help="Category of images to include in training")
     parser.add_argument('--cf_dir', type=str, default=os.path.join(IMAGES_ROOT, "repaint_results"))
-    parser.add_argument('--use_counterfactuals', action='store_true', default=False, help='Whether to include counterfactual examples in training')
+    
+    # Counterfactual augmentation mode (mutually exclusive)
+    cf_aug_group = parser.add_mutually_exclusive_group()
+    cf_aug_group.add_argument('--use_counterfactuals', action='store_true', default=False, help='Include counterfactual examples in the training dataset')
+    cf_aug_group.add_argument('--add_cf_batch', action='store_true', default=False, help='Add corresponding counterfactuals to batches with their original images')
+    
     validation_mode_group = parser.add_mutually_exclusive_group()
     validation_mode_group.add_argument('--cross-validation', action='store_true', default=False, help='Whether to perform cross-validation')
     validation_mode_group.add_argument('--no_validation', action='store_true', default=False, help='Train for the specified number of epochs without validation split and without early stopping.')

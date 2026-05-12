@@ -1,4 +1,5 @@
 import os
+from PIL.Image import Image
 import numpy as np
 import torch
 import torch.optim as optim
@@ -25,6 +26,68 @@ from src.C_Dataset_Handlers.Inbreast_dataset import Inbreast_dataset
 from src.E_Aux_Scripts.LOW import LOWLoss
 
 log = logging.getLogger(__name__)
+
+def add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform):
+	"""
+	Add counterfactuals to batch while maintaining batch size.
+	For each image with a CF, add the CF and remove one image from batch.
+	Prioritizes removal of healthy images first, then anomalous without CF.
+	"""
+	batch_size = images.size(0)
+	
+	# Identify which images have CFs
+	has_cf = []
+	cf_images_list = []
+	
+	for i, image_id in enumerate(image_ids):
+		cf_path = os.path.join(cf_dir, f"{image_id}.png")
+		if os.path.exists(cf_path):
+			has_cf.append(i)
+			cf_img = Image.open(cf_path)
+			if transform:
+				cf_img = transform(cf_img)
+			cf_images_list.append(cf_img)
+	
+	if not has_cf:
+		# No CFs available, return batch as is
+		return images, labels
+	
+	# Build new batch
+	num_cfs = len(has_cf)
+	removed = 0
+	
+	# Remove healthy images
+	indices_to_remove = []
+	for idx in range(batch_size):
+		if removed >= num_cfs:
+			break
+		if labels[idx].item() == 0 and idx not in has_cf:  # Healthy image without CF
+			indices_to_remove.append(idx)
+			removed += 1
+	
+	# Remove anomalous without CF if needed
+	if removed < num_cfs:
+		for idx in range(batch_size):
+			if removed >= num_cfs:
+				break
+			if labels[idx].item() == 1 and idx not in has_cf:  # Anomalous without CF
+				indices_to_remove.append(idx)
+				removed += 1
+	
+	# Keep images that are not being removed
+	keep_indices = [i for i in range(batch_size) if i not in indices_to_remove]
+	kept_images = images[keep_indices]
+	kept_labels = labels[keep_indices]
+	
+	# Add CF images
+	cf_tensor = torch.stack(cf_images_list).to(device)
+	new_images = torch.cat([kept_images, cf_tensor], dim=0)
+	
+	# Add CF labels (all 0 for healthy)
+	cf_labels = torch.zeros(num_cfs, dtype=labels.dtype, device=device)
+	new_labels = torch.cat([kept_labels, cf_labels], dim=0)
+	
+	return new_images, new_labels
 
 def mixup_batch(images, labels, alpha=1.0):
 	"""Apply MixUp to a batch of images and labels"""
@@ -197,7 +260,7 @@ def create_transforms(
 
 	return train_transform, val_transform
 
-def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=False, mixup_alpha=1.0):
+def train_epoch(model, dataloader, criterion, optimizer, device, add_cf_batch=False, cf_dir=None, transform=None, use_mixup=False, mixup_alpha=1.0):
 	"""Train for one epoch"""
 	model.train()
 	running_loss = 0.0
@@ -209,9 +272,12 @@ def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=False
 		raise ValueError("MixUp is not supported with LOWLoss because it requires hard class targets.")
 
 	for batch in tqdm(dataloader, desc="Training"):
-		images, labels, _ = batch
+		images, labels, image_ids = batch
 		images = images.to(device)
 		labels = labels.to(device)
+
+		if add_cf_batch:  # Pass this as parameter
+			images, labels = add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform)
 
 		if use_mixup:
 			images, mixed_labels, _ = mixup_batch(images, labels, alpha=mixup_alpha)

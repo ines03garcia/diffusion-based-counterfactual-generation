@@ -33,7 +33,7 @@ from src.E_Aux_Scripts.argument_parsers import create_train_argparser
 
 
 def build_base_setup(args):
-    augmentation_mode = "cf_aug" if args.use_counterfactuals else "baseline_aug"
+    augmentation_mode = "cf_aug" if args.use_counterfactuals or args.add_cf_batch else "baseline_aug"
     
     if args.cross_validation:
         mode = "cross-validation"
@@ -309,6 +309,9 @@ def main():
                 # Train
                 train_loss, train_acc, train_f1 = train_epoch(
                     model, train_loader, criterion, optimizer, device,
+                    add_cf_batch=args.add_cf_batch, 
+                    cf_dir=args.cf_dir,
+                    transform=train_transform,
                     use_mixup=args.use_mixup,
                     mixup_alpha=args.mixup_alpha
                 )
