@@ -2,12 +2,15 @@ import argparse
 import importlib
 import json
 import os
+import sys
 from typing import List
 
 import numpy as np
 
-from src.E_Aux_Scripts.argument_parsers import create_significance_argparser, DEFAULT_METRICS
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, PROJECT_ROOT)
 
+from src.E_Aux_Scripts.argument_parsers import create_significance_argparser
 
 LOWER_IS_BETTER_METRICS = {"log_loss"}
 
