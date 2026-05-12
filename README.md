@@ -59,19 +59,53 @@ This repository provides code for generating counterfactual images using diffusi
   python src/DDPM/scripts/image_sample.py [sampling-parameters]
   ```
 
-- **Train deep learning classifiers (with or without counterfactual augmentation)**: `src/F_Tasks/train_classifier.py`
+- **Train deep learning classifiers**: `src/F_Tasks/train_classifier.py`
   ```bash
-  python src/F_Tasks/train_classifier.py [--cross-validation] [--use_counterfactuals] <model_type> [model-specific-parameters]
+  python src/F_Tasks/train_classifier.py [mode] [augmentation] <model_type> [model-specific-parameters]
   ```
-  Example:
+  Training now supports three mutually exclusive execution modes:
+  - `--cross-validation`
+  - `--multiple_seeds`
+  - `--single_seed`
+
+  Optional training flags include:
+  - `--use_counterfactuals` to add counterfactual samples to the training set.
+  - `--add_cf_batch` to pair originals with their counterfactuals inside batches.
+  - `--no_validation` for training without a validation split or early stopping.
+  - `--loss low` to train with the LOW-based loss instead of BCE.
+  - `--resume_from_checkpoint` to continue from an existing checkpoint.
+
+  Examples:
   ```bash
-  python src/F_Tasks/train_classifier.py convnext --use_counterfactuals
+  python src/F_Tasks/train_classifier.py --single_seed convnext --epochs 27
+  python src/F_Tasks/train_classifier.py --cross-validation --use_counterfactuals vit --epochs 9
+  python src/F_Tasks/train_classifier.py --multiple_seeds --add_cf_batch mammo-clip --epochs 24
   ```
 
 - **Test deep learning classifiers**: `src/F_Tasks/test_classifier.py`
   ```bash
-  python src/F_Tasks/test_classifier.py [parameters] <model_type> [model-specific-parameters]
+  python src/F_Tasks/test_classifier.py <model_type> [test-parameters]
   ```
+  The test script now supports:
+  - `--cross-validation` to evaluate fold checkpoints from a checkpoint directory.
+  - `--multiple_seeds` to evaluate all `seed_*/final_model.pth` checkpoints under a checkpoint root.
+  - `--aggregate_results` to save mean/std summaries across folds or seeds.
+  - `--fixed_specificity` and `--fixed_specificity_value` to evaluate at a chosen operating point instead of the full metric suite.
+  - `--output_path` to aggregate previously generated results without rerunning inference.
+  - `--use_counterfactuals` to include counterfactual samples during test loading for VinDr.
+
+  Examples:
+  ```bash
+  python src/F_Tasks/test_classifier.py convnext --checkpoint_path models/baseline_aug/seed_0/final_model.pth
+  python src/F_Tasks/test_classifier.py --cross-validation vit --checkpoint_dir models/baseline_aug
+  python src/F_Tasks/test_classifier.py --multiple_seeds mammo-clip --checkpoint_path data/logs/Classifiers/train/mammo-clip/baseline_aug/multiple_seeds/local_00/
+  ```
+
+- **Compare baseline vs counterfactual augmentation results**: `src/F_Tasks/test_classifier_significance.py`
+  ```bash
+  python src/F_Tasks/test_classifier_significance.py --baseline_aug <baseline_results_dir> --cf_aug <cf_results_dir> [--metrics ...] [--output_path ...]
+  ```
+  This script compares matching `test_metrics.json` files with ASO and can save a JSON summary for downstream analysis.
 
 ## Citation
 TO DO
