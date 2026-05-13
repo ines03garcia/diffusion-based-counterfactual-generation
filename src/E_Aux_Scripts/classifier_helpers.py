@@ -2,6 +2,7 @@ import os
 from PIL.Image import Image
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 import logging
 from tqdm import tqdm
@@ -32,6 +33,7 @@ def add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform):
 	Add counterfactuals to batch while maintaining batch size.
 	For each image with a CF, add the CF and remove one image from batch.
 	Prioritizes removal of healthy images first, then anomalous without CF.
+	Returns pair indices so a paired loss can be computed in the same step.
 	"""
 	batch_size = images.size(0)
 	
@@ -50,7 +52,8 @@ def add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform):
 	
 	if not has_cf:
 		# No CFs available, return batch as is
-		return images, labels
+		empty_pairs = torch.empty((0, 2), dtype=torch.long, device=device)
+		return images, labels, empty_pairs
 	
 	# Build new batch
 	num_cfs = len(has_cf)
@@ -86,8 +89,61 @@ def add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform):
 	# Add CF labels (all 0 for healthy)
 	cf_labels = torch.zeros(num_cfs, dtype=labels.dtype, device=device)
 	new_labels = torch.cat([kept_labels, cf_labels], dim=0)
+
+	# Build (original_index_in_new_batch, cf_index_in_new_batch) pairs.
+	old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(keep_indices)}
+	cf_start = len(keep_indices)
+	pairs = []
+	for cf_offset, old_idx in enumerate(has_cf):
+		orig_new_idx = old_to_new.get(old_idx)
+		if orig_new_idx is not None:
+			pairs.append([orig_new_idx, cf_start + cf_offset])
+
+	if pairs:
+		pair_indices = torch.tensor(pairs, dtype=torch.long, device=device)
+	else:
+		pair_indices = torch.empty((0, 2), dtype=torch.long, device=device)
 	
-	return new_images, new_labels
+	return new_images, new_labels, pair_indices
+
+
+def compute_pair_consistency_loss(outputs, pair_indices, pair_loss_type="kl"):
+	"""Compute consistency between original and CF predictions for paired samples."""
+	if pair_indices.numel() == 0:
+		return outputs.new_tensor(0.0)
+
+	orig_idx = pair_indices[:, 0]
+	cf_idx = pair_indices[:, 1]
+
+	if outputs.dim() > 1 and outputs.shape[1] > 1:
+		orig_logits = outputs[orig_idx]
+		cf_logits = outputs[cf_idx]
+		if pair_loss_type == "mse":
+			orig_prob = torch.softmax(orig_logits, dim=1)
+			cf_prob = torch.softmax(cf_logits, dim=1)
+			return F.mse_loss(orig_prob, cf_prob)
+
+		orig_log_prob = F.log_softmax(orig_logits, dim=1)
+		cf_prob = F.softmax(cf_logits, dim=1)
+		cf_log_prob = F.log_softmax(cf_logits, dim=1)
+		orig_prob = F.softmax(orig_logits, dim=1)
+		forward = F.kl_div(orig_log_prob, cf_prob, reduction="batchmean")
+		backward = F.kl_div(cf_log_prob, orig_prob, reduction="batchmean")
+		return 0.5 * (forward + backward)
+
+	orig_logits = outputs[orig_idx].view(-1)
+	cf_logits = outputs[cf_idx].view(-1)
+	orig_prob_pos = torch.sigmoid(orig_logits)
+	cf_prob_pos = torch.sigmoid(cf_logits)
+
+	if pair_loss_type == "mse":
+		return F.mse_loss(orig_prob_pos, cf_prob_pos)
+
+	orig_dist = torch.stack([1.0 - orig_prob_pos, orig_prob_pos], dim=1)
+	cf_dist = torch.stack([1.0 - cf_prob_pos, cf_prob_pos], dim=1)
+	forward = F.kl_div(torch.log(orig_dist + 1e-8), cf_dist, reduction="batchmean")
+	backward = F.kl_div(torch.log(cf_dist + 1e-8), orig_dist, reduction="batchmean")
+	return 0.5 * (forward + backward)
 
 def mixup_batch(images, labels, alpha=1.0):
 	"""Apply MixUp to a batch of images and labels"""
@@ -260,7 +316,20 @@ def create_transforms(
 
 	return train_transform, val_transform
 
-def train_epoch(model, dataloader, criterion, optimizer, device, add_cf_batch=False, cf_dir=None, transform=None, use_mixup=False, mixup_alpha=1.0):
+def train_epoch(
+	model,
+	dataloader,
+	criterion,
+	optimizer,
+	device,
+	add_cf_batch=False,
+	cf_dir=None,
+	transform=None,
+	use_mixup=False,
+	mixup_alpha=1.0,
+	pair_loss_weight=0.0,
+	pair_loss_type="kl",
+):
 	"""Train for one epoch"""
 	model.train()
 	running_loss = 0.0
@@ -270,14 +339,17 @@ def train_epoch(model, dataloader, criterion, optimizer, device, add_cf_batch=Fa
 
 	if use_mixup and uses_low_loss:
 		raise ValueError("MixUp is not supported with LOWLoss because it requires hard class targets.")
+	if pair_loss_weight > 0.0 and use_mixup:
+		raise ValueError("Pair consistency loss is not supported with MixUp because pair labels become ambiguous.")
 
 	for batch in tqdm(dataloader, desc="Training"):
 		images, labels, image_ids = batch
 		images = images.to(device)
 		labels = labels.to(device)
+		pair_indices = torch.empty((0, 2), dtype=torch.long, device=device)
 
 		if add_cf_batch:  # Pass this as parameter
-			images, labels = add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform)
+			images, labels, pair_indices = add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform)
 
 		if use_mixup:
 			images, mixed_labels, _ = mixup_batch(images, labels, alpha=mixup_alpha)
@@ -293,9 +365,15 @@ def train_epoch(model, dataloader, criterion, optimizer, device, add_cf_batch=Fa
 				labels_for_loss = labels_for_loss.view(-1, 1)
 		
 		if use_mixup:
-			loss = criterion(outputs, mixed_labels)
+			classification_loss = criterion(outputs, mixed_labels)
 		else:
-			loss = criterion(outputs, labels_for_loss)
+			classification_loss = criterion(outputs, labels_for_loss)
+
+		if add_cf_batch and pair_loss_weight > 0.0:
+			pair_loss = compute_pair_consistency_loss(outputs, pair_indices, pair_loss_type=pair_loss_type)
+			loss = classification_loss + pair_loss_weight * pair_loss
+		else:
+			loss = classification_loss
 		
 		loss.backward()
 		optimizer.step()

@@ -27,6 +27,8 @@ def create_train_argparser():
     cf_aug_group = parser.add_mutually_exclusive_group()
     cf_aug_group.add_argument('--use_counterfactuals', action='store_true', default=False, help='Include counterfactual examples in the training dataset')
     cf_aug_group.add_argument('--add_cf_batch', action='store_true', default=False, help='Add corresponding counterfactuals to batches with their original images')
+    parser.add_argument('--pair_loss_weight', type=float, default=0.0, help='Weight for counterfactual pair consistency loss when using --add_cf_batch')
+    parser.add_argument('--pair_loss_type', type=str, choices=['kl', 'mse'], default='kl', help='Pair consistency loss type used in the joint objective')
     
     validation_mode_group = parser.add_mutually_exclusive_group()
     validation_mode_group.add_argument('--cross-validation', action='store_true', default=False, help='Whether to perform cross-validation')

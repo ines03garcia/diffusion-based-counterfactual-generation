@@ -59,6 +59,10 @@ def parse_and_validate_args():
         parser.error("Use only one mode: --multiple_seeds OR --single_seed.")
     if not args.cross_validation and not args.multiple_seeds and not args.single_seed:
         parser.error("Enable one mode: --cross-validation, --multiple_seeds, or --single_seed.")
+    if args.pair_loss_weight > 0.0 and not args.add_cf_batch:
+        parser.error("--pair_loss_weight requires --add_cf_batch because pair indices are built from in-batch CF pairing.")
+    if args.pair_loss_weight < 0.0:
+        parser.error("--pair_loss_weight must be >= 0.")
 
     # Multi-seed runs are training-only (no validation split).
     if args.multiple_seeds:
@@ -168,6 +172,10 @@ def main():
         log.info(f"Using augmentation type: {args.augmentation_type}")
         if args.use_mixup:
             log.info(f"MixUp augmentation enabled with alpha={args.mixup_alpha}")
+        if args.add_cf_batch and args.pair_loss_weight > 0.0:
+            log.info(
+                f"Joint objective enabled: total_loss = classification_loss + {args.pair_loss_weight} * pair_{args.pair_loss_type}_loss"
+            )
         log.debug(f"Train transforms: {train_transform}")
         log.debug(f"Validation transforms: {val_transform}")
 
@@ -313,7 +321,9 @@ def main():
                     cf_dir=args.cf_dir,
                     transform=train_transform,
                     use_mixup=args.use_mixup,
-                    mixup_alpha=args.mixup_alpha
+                    mixup_alpha=args.mixup_alpha,
+                    pair_loss_weight=args.pair_loss_weight,
+                    pair_loss_type=args.pair_loss_type,
                 )
                 
                 if not args.no_validation:
