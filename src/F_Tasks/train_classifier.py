@@ -71,7 +71,17 @@ def parse_and_validate_args():
     return args
 
 
-def save_cf_low_scores(model, scoring_dataset, criterion, device, output_path, batch_size, num_workers, seed, log):
+def save_cf_low_scores(model, scoring_dataset, criterion, device, output_dir, epoch, total_epochs, accumulator, batch_size, num_workers, seed, log):
+    """
+    Compute LOW details for the scoring_dataset and accumulate values across epochs.
+    Only writes final CSV at the last epoch.
+    
+    output_dir: folder where final CSV is saved
+    epoch: integer epoch number (1-based)
+    total_epochs: total number of epochs
+    accumulator: dict to accumulate {image_id: {label, low_scores: [], sample_losses: [], loss_grad_norms: []}}
+    Returns: updated accumulator
+    """
     scoring_loader = DataLoader(
         scoring_dataset,
         batch_size=batch_size,
@@ -84,7 +94,6 @@ def save_cf_low_scores(model, scoring_dataset, criterion, device, output_path, b
     model.eval()
 
     with torch.enable_grad():
-        sample_offset = 0
         for batch in scoring_loader:
             images, labels, image_ids = batch
             images = images.to(device)
@@ -99,37 +108,61 @@ def save_cf_low_scores(model, scoring_dataset, criterion, device, output_path, b
                 zip(image_ids, sample_losses, lossgrad, weights)
             ):
                 rows.append({
-                    "rank": 0,
-                    "image_id": image_id,
+                    "epoch": int(epoch),
+                    "image_id": str(image_id),
                     "label": int(labels[batch_index].item()),
-                    "sample_loss": round(float(loss_value.item()), 4),
-                    "loss_grad_norm": round(float(grad_value.item()), 4),
-                    "low_score": round(float(weight_value.item()), 4),
+                    "sample_loss": float(loss_value.item()),
+                    "loss_grad_norm": float(grad_value.item()),
+                    "low_score": float(weight_value.item()),
                 })
 
-            sample_offset += len(image_ids)
+    # Update in-memory accumulator
+    for r in rows:
+        img = r['image_id']
+        if img not in accumulator:
+            accumulator[img] = {
+                'label': r['label'],
+                'low_scores': [],
+                'sample_losses': [],
+                'loss_grad_norms': []
+            }
+        accumulator[img]['low_scores'].append(r['low_score'])
+        accumulator[img]['sample_losses'].append(r['sample_loss'])
+        accumulator[img]['loss_grad_norms'].append(r['loss_grad_norm'])
 
-    rows.sort(key=lambda row: row["low_score"], reverse=True)
-    for rank, row in enumerate(rows, start=1):
-        row["rank"] = rank
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", newline="") as csv_file:
-        writer = csv.DictWriter(
-            csv_file,
-            fieldnames=[
-                "rank",
-                "image_id",
-                "label",
-                "sample_loss",
-                "loss_grad_norm",
-                "low_score",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(rows)
-
-    log.info(f"Saved LOW scores for {len(rows)} images to: {output_path}")
+    # Only write the final aggregated CSV after accumulation across all epochs
+    if int(epoch) == int(total_epochs):
+        os.makedirs(output_dir, exist_ok=True)
+        agg_csv = os.path.join(output_dir, f'low_scores_aggregated_final_epoch_{epoch}.csv')
+        with open(agg_csv, 'w', newline='') as csv_file:
+            fieldnames = ['image_id', 'label', 'sum_low', 'count', 'avg_low', 'avg_sample_loss', 'avg_loss_grad_norm', 'last_low']
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+            for img, vals in accumulator.items():
+                lows = vals.get('low_scores', [])
+                samples = vals.get('sample_losses', [])
+                grads = vals.get('loss_grad_norms', [])
+                count = len(lows)
+                sum_low = float(sum(lows)) if count > 0 else 0.0
+                avg_low = sum_low / count if count > 0 else 0.0
+                avg_sample = float(sum(samples) / len(samples)) if len(samples) > 0 else 0.0
+                avg_grad = float(sum(grads) / len(grads)) if len(grads) > 0 else 0.0
+                last_low = float(lows[-1]) if count > 0 else 0.0
+                writer.writerow({
+                    'image_id': img,
+                    'label': vals.get('label', 0),
+                    'sum_low': round(sum_low, 6),
+                    'count': count,
+                    'avg_low': round(avg_low, 6),
+                    'avg_sample_loss': round(avg_sample, 6),
+                    'avg_loss_grad_norm': round(avg_grad, 6),
+                    'last_low': round(last_low, 6),
+                })
+        log.info(f"Wrote final aggregated LOW CSV: {agg_csv}")
+    else:
+        log.info(f"Accumulated LOW scores for epoch {epoch}/{total_epochs}")
+    
+    return accumulator
 
 
 def main():
@@ -188,6 +221,26 @@ def main():
             folds = 4
         else:
             folds = 1
+        
+        # Prepare scoring dataset and accumulator for epoch-wise accumulation at seed level (before fold loop)
+        scoring_dataset = None
+        low_accumulator = {}  # In-memory accumulator for LOW scores
+        if args.loss == 'low' and args.use_counterfactuals:
+            # Create transforms for scoring
+            _, val_transform = create_transforms(
+                augmentation_type=args.augmentation_type,
+                model_type=args.model_type
+            )
+            scoring_dataset = VinDrMammo_dataset(
+                split="train",
+                label=None,
+                cf_dir=args.cf_dir,
+                cv_fold=None,  # Use all samples regardless of fold
+                data_dir=args.data_dir,
+                metadata_path=args.metadata_path,
+                transform=val_transform,
+            )
+            log.info(f"LOW scoring dataset prepared at seed level with {len(scoring_dataset)} samples for accumulation across all folds.")
         
         for fold in range(folds):
             fold_results_dir = results_dir
@@ -372,6 +425,23 @@ def main():
                 epoch_end_time = time.time()
                 log.info(f"Epoch {epoch+1} completed in {epoch_end_time - epoch_start_time:.2f} seconds.")
 
+                # After epoch: compute LOW scores and accumulate (if configured)
+                if args.loss == 'low' and args.use_counterfactuals and scoring_dataset is not None:
+                    low_accumulator = save_cf_low_scores(
+                        model,
+                        scoring_dataset,
+                        criterion,
+                        device,
+                        seed_dir,
+                        epoch+1,
+                        args.epochs,
+                        low_accumulator,
+                        batch_size=args.batch_size,
+                        num_workers=args.num_workers,
+                        seed=seed,
+                        log=log,
+                    )
+
             if args.no_validation:
                 # Save final model when no validation is used
                 save_path = os.path.join(fold_results_dir, 'final_model.pth')
@@ -387,28 +457,7 @@ def main():
             with open(os.path.join(fold_results_dir, 'training_history.json'), 'w') as f:
                 json.dump(history, f, indent=2)
 
-            if args.loss == 'low' and args.use_counterfactuals:
-                scoring_dataset = VinDrMammo_dataset(
-                    split="train",
-                    label=None,
-                    cf_dir=args.cf_dir,
-                    cv_fold=fold if not args.no_validation else None,
-                    data_dir=args.data_dir,
-                    metadata_path=args.metadata_path,
-                    transform=val_transform,
-                )
-                low_scores_path = os.path.join(fold_results_dir, 'low_scores.csv')
-                save_cf_low_scores(
-                    model,
-                    scoring_dataset,
-                    criterion,
-                    device,
-                    low_scores_path,
-                    batch_size=args.batch_size,
-                    num_workers=args.num_workers,
-                    seed=seed,
-                    log=log,
-                )
+            # LOW scoring is done per-epoch during training when enabled.
 
             # Create training metrics plots
             if len(history['train_loss']) > 0:
