@@ -65,6 +65,9 @@ class VinDrMammo_dataset(Dataset):
             records_filtered_by_label = [r for r in records_filtered_by_split if r.get("healthy") == 0]
         elif self.label == "anomalous_with_findings":
             records_filtered_by_label = [r for r in records_filtered_by_split if r.get("has_cf") == 1]
+        elif self.label == "scoring":
+            records_filtered_by_label = records_filtered_by_split
+            logger.info("LOW scoring mode: original images excluded; loading counterfactuals for LOW accumulation.")
         else: # None
             records_filtered_by_label = []
             logger.warning("No label label specified, original images will not be included.")

@@ -233,7 +233,7 @@ def main():
             )
             scoring_dataset = VinDrMammo_dataset(
                 split="train",
-                label=None,
+                label="scoring",  # Special label to indicate this dataset is for scoring/accumulation only
                 cf_dir=args.cf_dir,
                 cv_fold=None,  # Use all samples regardless of fold
                 data_dir=args.data_dir,
