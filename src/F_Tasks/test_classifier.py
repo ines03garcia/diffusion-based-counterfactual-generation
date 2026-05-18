@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import statistics
 import sys
