@@ -1,21 +1,17 @@
 # Prepare dataset by running CLAHE on all images
 import cv2
 import os
+import shutil
 
-def resize_image_with_aspect_ratio(image, orig_width=None, orig_height=None, target_size=512):
-    """Resize an image using the same scale-and-pad logic as bbox resizing.
-
-    If orig_width/orig_height are not provided, they are taken from the image itself.
+def resize_image_with_aspect_ratio(image, target_size=512):
+    """
+    Resize an image with aspect ratio preserved and pad (with zeros) to target_size x target_size.
     """
     if image is None:
         raise ValueError("Image cannot be None.")
 
     # image shape is (height, width) for grayscale
-    img_h, img_w = image.shape[:2]
-    if orig_width is None:
-        orig_width = img_w
-    if orig_height is None:
-        orig_height = img_h
+    orig_height, orig_width = image.shape[:2]
 
     scale = target_size / max(orig_width, orig_height)
     new_w = int(orig_width * scale)
@@ -39,29 +35,13 @@ def resize_image_with_aspect_ratio(image, orig_width=None, orig_height=None, tar
         value=0,
     )
 
-def apply_clahe_to_image(image_path, output_path, clip_limit=2.0, tile_grid_size=(8, 8)):
-    # Read the image
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        raise ValueError(f"Image at path {image_path} could not be read.")
-    
-    # Create CLAHE object
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-    
-    # Apply CLAHE to the image
-    clahe_image = clahe.apply(image)
-    
-    # Save the processed image
-    cv2.imwrite(output_path, clahe_image)
 
-
-def process_dataset(input_dir, output_dir, resize_images, orig_width=None, orig_height=None, target_size=None):
+def process_dataset(input_dir, output_dir, resize_images, target_size=None, apply_clahe=True):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    if resize_images:
-        if target_size is None:
-            raise ValueError("`target_size` must be provided when `resize_images` is True")
+    if resize_images and target_size is None:
+        raise ValueError("`target_size` must be provided when `resize_images` is True")
     
     for filename in os.listdir(input_dir):
         if filename.lower().endswith(('.png')):
@@ -72,23 +52,47 @@ def process_dataset(input_dir, output_dir, resize_images, orig_width=None, orig_
                 raise ValueError(f"Image at path {input_path} could not be read.")
 
             if resize_images:
-                # Use the actual image dimensions so the letterbox matches bbox scaling.
-                # If orig_width/orig_height are None they will be inferred inside the helper.
+                # Resize the image while preserving aspect ratio and padding to target size
                 image = resize_image_with_aspect_ratio(
                     image,
-                    orig_width=orig_width,
-                    orig_height=orig_height,
                     target_size=target_size,
                 )
 
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            clahe_image = clahe.apply(image)
-            cv2.imwrite(output_path, clahe_image)
+            if apply_clahe:
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                image = clahe.apply(image)
+
+            cv2.imwrite(output_path, image)
             print(f"Processed {filename} and saved to {output_path}")
+
+
+def reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDr-Mammo-CLIP"):
+    """
+    Copies image files to a new folder without patient id subfolders.
+    """
+    if not os.path.exists(src_dir):
+        raise ValueError(f"Source directory {src_dir} does not exist")
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir)
+
+    for root, _, files in os.walk(src_dir):
+        for fname in files:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext != '.png':
+                continue
+
+            src_path = os.path.join(root, fname)
+            dest_name = fname
+            dest_path = os.path.join(dest_dir, dest_name)
+            shutil.copy2(src_path, dest_path)
+
+    return dest_dir
 
 
 if __name__ == "__main__":
     input_directory = "data/images/VinDrMammo-CLIP" # Input images directory
-    output_directory = "data/images/VinDrMammo-CLIP2" # Output directory for resized CLAHE images
-    # Resize images before CLAHE. orig_width/orig_height=None lets the helper infer from each image.
-    process_dataset(input_directory, output_directory, resize_images=True, orig_width=None, orig_height=None, target_size=512)
+    output_directory = "data/images/VinDrMammo-CLIP-preprocessed" # Output directory for resized CLAHE images
+
+    input_directory = reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDrMammo-CLIP")
+    
+    process_dataset(input_directory, output_directory, resize_images=False, apply_clahe=False)
