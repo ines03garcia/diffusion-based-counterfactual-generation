@@ -91,8 +91,8 @@ def reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/im
 
 if __name__ == "__main__":
     input_directory = "data/images/VinDrMammo-CLIP" # Input images directory
-    output_directory = "data/images/VinDrMammo-CLIP-preprocessed" # Output directory for resized CLAHE images
+    output_directory = "data/images/VinDrMammo-CLIP-CLAHE" # Output directory for resized CLAHE images
 
-    input_directory = reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDrMammo-CLIP")
+    #input_directory = reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDrMammo-CLIP")
     
-    process_dataset(input_directory, output_directory, resize_images=False, apply_clahe=False)
+    process_dataset(input_directory, output_directory, resize_images=False, apply_clahe=True)
