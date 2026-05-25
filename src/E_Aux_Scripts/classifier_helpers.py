@@ -10,7 +10,8 @@ import logging
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
-from albumentations import Compose, HorizontalFlip, VerticalFlip, Affine, ElasticTransform
+from albumentations import Compose, HorizontalFlip, VerticalFlip, Affine, ElasticTransform, Normalize
+from albumentations.pytorch import ToTensorV2
 from sklearn.metrics import (
 	accuracy_score,
 	balanced_accuracy_score,
@@ -25,7 +26,7 @@ from sklearn.metrics import (
 	auc,
 )
 
-from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
+from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset, _apply_transform
 from src.C_Dataset_Handlers.Inbreast_dataset import Inbreast_dataset
 from src.E_Aux_Scripts.LOW import LOWLoss
 
@@ -49,8 +50,7 @@ def add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform):
 		if os.path.exists(cf_path):
 			has_cf.append(i)
 			cf_img = Image.open(cf_path)
-			if transform:
-				cf_img = transform(cf_img)
+			cf_img = _apply_transform(transform, cf_img)
 			cf_images_list.append(cf_img)
 	
 	if not has_cf:
@@ -297,13 +297,17 @@ def create_transforms(
 	the upstream albumentations-style transforms.
 	"""
 	if model_type in ["mammo-clip", "fpn-mil"]:
-		# Mammo-CLIP normalization (upstream mean/std)
-		p = getattr(args, 'p', 1.0) if args is not None else 1.0
 		train_transform = Compose([
 			HorizontalFlip(),
 			VerticalFlip(),
 			Affine(rotate=20, translate_percent=0.1, scale=[0.8, 1.2], shear=20),
 			ElasticTransform(alpha=getattr(args, 'alpha', 10), sigma=getattr(args, 'sigma', 15)),
+			Normalize(
+				mean=[getattr(args, 'mean', 0.3089279)] * 3,
+				std=[getattr(args, 'std', 0.25053555408335154)] * 3,
+				max_pixel_value=255.0,
+			),
+			ToTensorV2(),
 		], p=getattr(args, 'p', 1.0))
 
 		val_transform = None

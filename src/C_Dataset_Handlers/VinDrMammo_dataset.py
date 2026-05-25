@@ -2,10 +2,29 @@ import os
 import json
 import logging
 import numpy as np
+import torch
 from torch.utils.data import Dataset
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+def _apply_transform(transform, image):
+    """Apply either a torchvision-style or Albumentations-style transform."""
+    if transform is None:
+        return image
+
+    rgb_image = image.convert("RGB")
+    try:
+        result = transform(image=np.asarray(rgb_image))
+        image_out = result["image"] if isinstance(result, dict) else result
+        if isinstance(image_out, np.ndarray):
+            if image_out.ndim == 2:
+                image_out = image_out[:, :, None]
+            return torch.from_numpy(image_out).permute(2, 0, 1).float().div(255.0)
+        return image_out
+    except TypeError:
+        return transform(rgb_image)
 
 class VinDrMammo_dataset(Dataset):
     def __init__(self, split=None, label=None, cf_dir=None, cv_fold=0, data_dir=None, metadata_path=None, transform=None):
@@ -100,8 +119,7 @@ class VinDrMammo_dataset(Dataset):
         image = Image.open(image_path).convert("L")
 
         # Apply transforms (e.g. convert to RGB, resize, ...)
-        if self.transform:
-            image = self.transform(image)
+        image = _apply_transform(self.transform, image)
 
         return image, label, image_id
     
