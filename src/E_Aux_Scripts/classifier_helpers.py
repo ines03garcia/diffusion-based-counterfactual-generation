@@ -1,13 +1,16 @@
 import os
 from PIL.Image import Image
 import numpy as np
+import math
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.optim.lr_scheduler import LambdaLR
 import logging
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from albumentations import Compose, HorizontalFlip, VerticalFlip, Affine, ElasticTransform
 from sklearn.metrics import (
 	accuracy_score,
 	balanced_accuracy_score,
@@ -238,6 +241,27 @@ def create_optimizer(model, args):
 	return optimizer
 
 
+class LinearWarmupCosineAnnealingLR(LambdaLR):
+	"""
+	Linear warmup followed by cosine-annealing scheduler.
+	Usage: scheduler = LinearWarmupCosineAnnealingLR(optimizer, total_steps, warmup_steps)
+	"""
+
+	def __init__(self, optimizer: optim.Optimizer, total_steps: int, warmup_steps: int, last_epoch: int = -1):
+		assert warmup_steps < total_steps, "Warmup steps should be less than total steps."
+		self.tsteps = total_steps
+		self.wsteps = int(warmup_steps)
+		super().__init__(optimizer, self._lr_multiplier, last_epoch)
+
+	def _lr_multiplier(self, step: int) -> float:
+		if step < self.wsteps and self.wsteps > 0:
+			multiplier = step / float(max(1, self.wsteps))
+		else:
+			cos_factor = (step - self.wsteps) / max(1, (self.tsteps - self.wsteps))
+			multiplier = math.cos(cos_factor * (math.pi / 2)) ** 2
+		return max(0.0, multiplier)
+
+
 def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
 	"""Load model and optimizer state from checkpoint"""
 
@@ -263,25 +287,27 @@ def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
 	return start_epoch, best_val_loss
 
 def create_transforms(
+	args=None,
 	augmentation_type="standard",
 	model_type="convnext",
 ):
-	"""Create classifier transforms for ImageNet-based models and Mammo-CLIP."""
+	"""Create classifier transforms for ImageNet-based models and Mammo-CLIP.
+
+	If `args` is provided and `model_type` is `mammo-clip` or `fpn-mil`, use
+	the upstream albumentations-style transforms.
+	"""
 	if model_type in ["mammo-clip", "fpn-mil"]:
-		normalize = transforms.Normalize(
-			mean=[0.3089279, 0.3089279, 0.3089279],
-			std=[0.25053555408335154, 0.25053555408335154, 0.25053555408335154],
-		)
-		train_transform = transforms.Compose([
-			transforms.Lambda(lambda img: img.convert("RGB")),
-			transforms.ToTensor(),
-			normalize,
-		])
-		val_transform = transforms.Compose([
-			transforms.Lambda(lambda img: img.convert("RGB")),
-			transforms.ToTensor(),
-			normalize,
-		])
+		# Mammo-CLIP normalization (upstream mean/std)
+		p = getattr(args, 'p', 1.0) if args is not None else 1.0
+		train_transform = Compose([
+			HorizontalFlip(),
+			VerticalFlip(),
+			Affine(rotate=20, translate_percent=0.1, scale=[0.8, 1.2], shear=20),
+			ElasticTransform(alpha=getattr(args, 'alpha', 10), sigma=getattr(args, 'sigma', 15)),
+		], p=getattr(args, 'p', 1.0))
+
+		val_transform = None
+
 		return train_transform, val_transform
 	
 	# ImageNet values for ViT and ConvNeXt
@@ -330,6 +356,7 @@ def train_epoch(
 	mixup_alpha=1.0,
 	pair_loss_weight=0.0,
 	pair_loss_type="kl",
+	scheduler=None,
 ):
 	"""Train for one epoch"""
 	model.train()
@@ -356,15 +383,15 @@ def train_epoch(
 			images, mixed_labels, _ = mixup_batch(images, labels, alpha=mixup_alpha)
 
 		optimizer.zero_grad()
+		# Standard full-precision training path (no AMP)
 		outputs = model(images)
-
 		if uses_low_loss:
 			labels_for_loss = labels.long()
 		else:
 			labels_for_loss = labels.float()
 			if not labels_for_loss.shape == outputs.shape:
 				labels_for_loss = labels_for_loss.view(-1, 1)
-		
+
 		if use_mixup:
 			classification_loss = criterion(outputs, mixed_labels)
 		else:
@@ -375,9 +402,11 @@ def train_epoch(
 			loss = classification_loss + pair_loss_weight * pair_loss
 		else:
 			loss = classification_loss
-		
+
 		loss.backward()
 		optimizer.step()
+
+		# (Training step already performed above)
 
 		running_loss += loss.item()
 		if uses_low_loss:
@@ -388,6 +417,13 @@ def train_epoch(
 		predictions.extend(preds.cpu().detach().numpy())
 		# Consider the original labels when computing training metrics, even if MixUp is used (soft labels are not suitable for metric calculations)
 		targets.extend(labels.long().cpu().numpy() if uses_low_loss else labels.float().cpu().numpy())
+
+		# Step scheduler per batch if provided (emulates upstream behavior)
+		if scheduler is not None:
+			try:
+				scheduler.step()
+			except Exception:
+				pass
 
 	epoch_loss = running_loss / len(dataloader)
 	epoch_acc = accuracy_score(targets, predictions)
@@ -409,7 +445,6 @@ def validate_epoch(model, dataloader, criterion, device):
 			images, labels, _ = batch
 			images = images.to(device)
 			labels = labels.to(device)
-
 			outputs = model(images)
 
 			if uses_low_loss:

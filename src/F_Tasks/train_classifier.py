@@ -20,13 +20,14 @@ from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
 from src.E_Aux_Scripts import logger
 from src.E_Aux_Scripts.utils import set_seed, seed_worker
 from src.E_Aux_Scripts.classifier_helpers import (
-	build_model,
-	create_transforms,
+    build_model,
+    create_transforms,
     create_optimizer,
     train_epoch,
     validate_epoch,
     resume_from_checkpoint,
-    plot_training_metrics
+    plot_training_metrics,
+    LinearWarmupCosineAnnealingLR,
 )
 from src.E_Aux_Scripts.LOW import LOWLoss
 from src.E_Aux_Scripts.argument_parsers import create_train_argparser
@@ -196,8 +197,9 @@ def main():
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         log.info(f"Using device [{device}] to train model [{args.model_type}] on dataset [{args.dataset}] with [{'counterfactual augmentation' if args.use_counterfactuals else 'no counterfactuals'}] and [{'cross-validation' if args.cross_validation else 'no cross-validation'}].\n")
 
-        # Create transforms
+        # Create transforms (pass args so Mammo-CLIP branch uses upstream-style albumentations)
         train_transform, val_transform = create_transforms(
+            args,
             augmentation_type=args.augmentation_type,
             model_type=args.model_type
         )
@@ -324,13 +326,17 @@ def main():
                 criterion = LOWLoss(lamb=0.1).to(device)
             log.debug("Loss function created")
 
-            # Learning rate scheduler
-            scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                optimizer,
-                T_max=args.epochs,
-                eta_min=args.lr * 0.01
-            )
-            log.debug("Learning rate scheduler created.")
+            # Learning rate scheduler: Linear warmup + cosine annealing (upstream)
+            # Determine warmup steps similar to upstream logic
+            if getattr(args, 'warmup_epochs', 0) == 0.1:
+                warmup_steps = args.epochs
+            elif getattr(args, 'warmup_epochs', 0) == 1:
+                warmup_steps = len(train_loader)
+            else:
+                warmup_steps = 10
+            total_steps = len(train_loader) * args.epochs
+            scheduler = LinearWarmupCosineAnnealingLR(optimizer, total_steps=total_steps, warmup_steps=warmup_steps)
+            log.debug("LinearWarmupCosineAnnealingLR scheduler created.")
 
             # Initialization for training loop
             start_epoch = 0
@@ -370,13 +376,15 @@ def main():
                 # Train
                 train_loss, train_acc, train_f1 = train_epoch(
                     model, train_loader, criterion, optimizer, device,
-                    add_cf_batch=args.add_cf_batch, 
+                    add_cf_batch=args.add_cf_batch,
                     cf_dir=args.cf_dir,
                     transform=train_transform,
                     use_mixup=args.use_mixup,
                     mixup_alpha=args.mixup_alpha,
                     pair_loss_weight=args.pair_loss_weight,
                     pair_loss_type=args.pair_loss_type,
+                    scheduler=scheduler,
+                    
                 )
                 
                 if not args.no_validation:
