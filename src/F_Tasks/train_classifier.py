@@ -327,16 +327,20 @@ def main():
             log.debug("Loss function created")
 
             # Learning rate scheduler: Linear warmup + cosine annealing (upstream)
-            # Determine warmup steps similar to upstream logic
-            if getattr(args, 'warmup_epochs', 0) == 0.1:
-                warmup_steps = args.epochs
-            elif getattr(args, 'warmup_epochs', 0) == 1:
-                warmup_steps = len(train_loader)
-            else:
-                warmup_steps = 10
+            # Determine warmup steps (expressed in optimizer steps / batches)
             total_steps = len(train_loader) * args.epochs
+            we = float(getattr(args, 'warmup_epochs', 0.0))
+            if we <= 0.0:
+                warmup_steps = 0
+            elif we < 1.0:
+                # fractional fraction of total training steps (e.g. 0.1 means 10% of total steps)
+                warmup_steps = max(1, int(total_steps * we))
+            else:
+                # convert nr of epochs to steps
+                warmup_steps = max(1, int(len(train_loader) * we))
+
             scheduler = LinearWarmupCosineAnnealingLR(optimizer, total_steps=total_steps, warmup_steps=warmup_steps)
-            log.debug("LinearWarmupCosineAnnealingLR scheduler created.")
+            log.debug(f"LinearWarmupCosineAnnealingLR scheduler created. total_steps={total_steps}, warmup_steps={warmup_steps}")
 
             # Initialization for training loop
             start_epoch = 0
