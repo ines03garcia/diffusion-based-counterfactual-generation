@@ -267,32 +267,33 @@ def create_transforms(
 	model_type="convnext",
 ):
 	"""Create classifier transforms for ImageNet-based models and Mammo-CLIP."""
-	if model_type == "mammo-clip" or model_type == "fpn-mil": # Mammo-CLIP (UPMC) specific values
+	if model_type in ["mammo-clip", "fpn-mil"]:
 		normalize = transforms.Normalize(
-			mean=[0.3089279, 0.3089279, 0.3089279], 
-			std=[0.25053555408335154, 0.25053555408335154, 0.25053555408335154]
+			mean=[0.3089279, 0.3089279, 0.3089279],
+			std=[0.25053555408335154, 0.25053555408335154, 0.25053555408335154],
 		)
-	else: # ImageNet values
-		normalize = transforms.Normalize(
-			mean=[0.485, 0.456, 0.406], 
-			std=[0.229, 0.224, 0.225],
-		)
+		train_transform = transforms.Compose([
+			transforms.Lambda(lambda img: img.convert("RGB")),
+			transforms.ToTensor(),
+			normalize,
+		])
+		val_transform = transforms.Compose([
+			transforms.Lambda(lambda img: img.convert("RGB")),
+			transforms.ToTensor(),
+			normalize,
+		])
+		return train_transform, val_transform
+	
+	# ImageNet values for ViT and ConvNeXt
+	normalize = transforms.Normalize(
+		mean=[0.485, 0.456, 0.406], 
+		std=[0.229, 0.224, 0.225],
+	)
 
 	if augmentation_type == "none":
 		train_transform = transforms.Compose([
 			transforms.Lambda(lambda img: img.convert("RGB")),
 			transforms.Resize((224, 224)),
-			transforms.ToTensor(),
-			normalize,
-		])
-	elif augmentation_type == "mixup":
-		# Add mixup augmentation to the standard set of transformations
-		train_transform = transforms.Compose([
-			transforms.Lambda(lambda img: img.convert("RGB")),
-			transforms.Resize((224, 224)),
-			transforms.RandomHorizontalFlip(p=0.5),
-			transforms.RandomRotation(degrees=15),
-			transforms.ColorJitter(brightness=0.2, contrast=0.2),
 			transforms.ToTensor(),
 			normalize,
 		])
