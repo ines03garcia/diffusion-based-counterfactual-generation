@@ -468,6 +468,12 @@ def main():
                             log=log,
                         )
 
+                    if args.save_checkpoints > 0 and (epoch + 1) % args.save_checkpoints == 0:
+                        save_path = os.path.join(fold_results_dir, f'checkpoint_epoch_{epoch+1}.pth')
+
+                        save_checkpoint(save_path, model, optimizer, epoch, args)
+                        log.info(f"Saved intermediate checkpoint at epoch {epoch+1} to: {save_path}")
+
                 if args.no_validation:
                     # Save final model when no validation is used
                     save_path = os.path.join(fold_results_dir, 'final_model.pth')
