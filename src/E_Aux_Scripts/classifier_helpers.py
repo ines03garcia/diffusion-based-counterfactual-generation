@@ -205,6 +205,14 @@ def _uses_low_loss(criterion):
 	return isinstance(criterion, LOWLoss)
 
 
+def _prepare_binary_targets(labels, outputs):
+	"""Match BCE-style target shape to the model output shape."""
+	targets = labels.float()
+	if targets.shape != outputs.shape:
+		targets = targets.view_as(outputs)
+	return targets
+
+
 def create_optimizer(model, args):
 	"""
 	Creates optimizer and calculates respective learning rates (regardless of whether layers are currently frozen or not).
@@ -409,9 +417,7 @@ def train_epoch(
 		if uses_low_loss:
 			labels_for_loss = labels.long()
 		else:
-			labels_for_loss = labels.float()
-			if not labels_for_loss.shape == outputs.shape:
-				labels_for_loss = labels_for_loss.view(-1, 1)
+			labels_for_loss = _prepare_binary_targets(labels, outputs)
 
 		if use_mixup:
 			classification_loss = criterion(outputs, mixed_labels)
@@ -471,7 +477,7 @@ def validate_epoch(model, dataloader, criterion, device):
 			if uses_low_loss:
 				labels_for_loss = labels.long()
 			else:
-				labels_for_loss = labels.float()
+				labels_for_loss = _prepare_binary_targets(labels, outputs)
 
 			loss = criterion(outputs, labels_for_loss)
 
