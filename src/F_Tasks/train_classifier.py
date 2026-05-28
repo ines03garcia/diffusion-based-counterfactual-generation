@@ -73,6 +73,21 @@ def parse_and_validate_args():
     return args
 
 
+def unwrap_model(model):
+    return model.module if isinstance(model, nn.DataParallel) else model
+
+def save_checkpoint(save_path, model, optimizer, epoch, args, val_loss=None):
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': unwrap_model(model).state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'args': vars(args),
+    }
+    if val_loss is not None:
+        checkpoint['val_loss'] = val_loss
+    torch.save(checkpoint, save_path)
+
+
 def save_cf_low_scores(model, scoring_dataset, criterion, device, output_dir, epoch, total_epochs, accumulator, batch_size, num_workers, seed, log):
     """
     Compute LOW details for the scoring_dataset and accumulate values across epochs.
@@ -305,10 +320,13 @@ def main():
 
                 # Create model
                 model = build_model(args, device, experiment="train")
+                if device.type == 'cuda' and torch.cuda.device_count() > 1:
+                    model = nn.DataParallel(model)
+                    log.info(f"Enabled DataParallel across {torch.cuda.device_count()} CUDA devices")
                 
                 # Freeze initial feature layers/encoder blocks
                 if args.freeze_layers > 0:
-                    model.freeze_layers(args.freeze_layers)
+                    unwrap_model(model).freeze_layers(args.freeze_layers)
                     log.info(f"Frozen first {args.freeze_layers} layers of the {args.model_type} feature extractor")
                 else:
                     log.info("No frozen layers: training all parameters from start")
@@ -421,13 +439,7 @@ def main():
                             
                             # Save best model
                             save_path = os.path.join(fold_results_dir, 'best_model.pth')
-                            torch.save({
-                                'epoch': epoch,
-                                'model_state_dict': model.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict(),
-                                'val_loss': val_loss,
-                                'args': vars(args)
-                            }, save_path)
+                            save_checkpoint(save_path, model, optimizer, epoch, args, val_loss=val_loss)
                             log.info(f"New best model saved. Val Loss: {val_loss:.4f}")
                         else:
                             patience_counter += 1
@@ -459,12 +471,7 @@ def main():
                 if args.no_validation:
                     # Save final model when no validation is used
                     save_path = os.path.join(fold_results_dir, 'final_model.pth')
-                    torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'args': vars(args)
-                    }, save_path)
+                    save_checkpoint(save_path, model, optimizer, epoch, args)
                     log.info(f"Model trained for {args.epochs} epochs without validation and saved to: {save_path}")
                 
                 # Save training history

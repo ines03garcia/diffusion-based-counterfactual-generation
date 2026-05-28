@@ -273,7 +273,17 @@ def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
 	checkpoint = torch.load(checkpoint_path, map_location=device)
 
 	# Load model state
-	model.load_state_dict(checkpoint['model_state_dict'])
+	state_dict = checkpoint['model_state_dict']
+	if isinstance(model, torch.nn.DataParallel):
+		try:
+			model.module.load_state_dict(state_dict)
+		except RuntimeError:
+			model.module.load_state_dict(_strip_module_prefix(state_dict))
+	else:
+		try:
+			model.load_state_dict(state_dict)
+		except RuntimeError:
+			model.load_state_dict(_strip_module_prefix(state_dict))
 
 	# Load optimizer state
 	optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -495,7 +505,10 @@ def load_checkpoint_weights(model, checkpoint_path, device):
 		raise ValueError(f"Unsupported checkpoint format in {checkpoint_path}")
 
 	state_dict = _strip_module_prefix(state_dict)
-	missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+	if isinstance(model, torch.nn.DataParallel):
+		missing_keys, unexpected_keys = model.module.load_state_dict(state_dict, strict=False)
+	else:
+		missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
 
 	if missing_keys:
 		log.warning(f"Missing keys while loading checkpoint: {missing_keys}")
