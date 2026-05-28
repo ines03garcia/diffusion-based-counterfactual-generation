@@ -320,7 +320,14 @@ def create_transforms(
 			ToTensorV2(),
 		], p=getattr(args, 'p', 1.0))
 
-		val_transform = None
+		val_transform = Compose([
+			Normalize(
+				mean=[getattr(args, 'mean', 0.3089279)] * 3,
+				std=[getattr(args, 'std', 0.25053555408335154)] * 3,
+				max_pixel_value=255.0,
+			),
+			ToTensorV2(),
+		])
 
 		return train_transform, val_transform
 	
