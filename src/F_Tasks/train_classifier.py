@@ -396,7 +396,7 @@ def main():
 
                     # Gradual unfreezing
                     if epoch == args.epochs // 4 or epoch == args.epochs // 2:  # Unfreeze after 25% and 50% of training
-                        model.unfreeze_layers(epoch, args.epochs)
+                        unwrap_model(model).unfreeze_layers(epoch, args.epochs)
 
                     # Train
                     train_loss, train_acc, train_f1 = train_epoch(
