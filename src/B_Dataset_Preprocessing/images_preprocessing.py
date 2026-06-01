@@ -12,10 +12,12 @@ def resize_image_with_aspect_ratio(image, target_size=512):
 
     # image shape is (height, width) for grayscale
     orig_height, orig_width = image.shape[:2]
+    print(f"Original image size: {orig_width}x{orig_height}")
 
     scale = target_size / max(orig_width, orig_height)
     new_w = int(orig_width * scale)
     new_h = int(orig_height * scale)
+    print(f"Resized image size (before padding): {new_w}x{new_h}")
 
     # Resize the image content using the computed scaled dimensions
     resized_image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
@@ -24,6 +26,7 @@ def resize_image_with_aspect_ratio(image, target_size=512):
     pad_h = (target_size - new_h) // 2
     pad_right = target_size - new_w - pad_w
     pad_bottom = target_size - new_h - pad_h
+    print(f"Padding added: top={pad_h}, bottom={pad_bottom}, left={pad_w}, right={pad_right}")
 
     return cv2.copyMakeBorder(
         resized_image,
@@ -89,10 +92,53 @@ def reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/im
     return dest_dir
 
 
+def upscale_counterfactuals(original_cf_dir="data/images/repaint_results", output_cf_dir="data/images/repaint_results_912x1520", target_sizes=(912, 1520)):
+    """
+    Remove padding from generated counterfactual images and resize the cropped content to the target size.
+    """
+    if not os.path.exists(original_cf_dir):
+        raise ValueError(f"Source directory {original_cf_dir} does not exist")
+    if not os.path.exists(output_cf_dir):
+        os.makedirs(output_cf_dir)
+
+    target_width, target_height = target_sizes
+
+    for filename in os.listdir(original_cf_dir):
+        if not filename.lower().endswith('.png'):
+            continue
+
+        input_path = os.path.join(original_cf_dir, filename)
+        output_path = os.path.join(output_cf_dir, filename)
+
+        image = cv2.imread(input_path, cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            raise ValueError(f"Image at path {input_path} could not be read.")
+
+        corner_size = max(1, min(image.shape[0], image.shape[1]) // 32)
+        corner_pixels = [
+            image[:corner_size, :corner_size],
+            image[:corner_size, -corner_size:],
+            image[-corner_size:, :corner_size],
+            image[-corner_size:, -corner_size:],
+        ]
+        background_level = int(min(int(corner.mean()) for corner in corner_pixels))
+        non_zero_points = cv2.findNonZero((image > background_level).astype('uint8'))
+        if non_zero_points is not None:
+            x, y, width, height = cv2.boundingRect(non_zero_points)
+            image = image[y:y + height, x:x + width]
+
+        image = cv2.resize(image, (target_width, target_height), interpolation=cv2.INTER_CUBIC)
+
+        cv2.imwrite(output_path, image)
+        print(f"Saved resized {filename} to {output_path} with shape {image.shape[1]}x{image.shape[0]}")
+
+
 if __name__ == "__main__":
     input_directory = "data/images/VinDrMammo-CLIP" # Input images directory
     output_directory = "data/images/VinDrMammo-CLIP-CLAHE" # Output directory for resized CLAHE images
 
     #input_directory = reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDrMammo-CLIP")
     
-    process_dataset(input_directory, output_directory, resize_images=False, apply_clahe=True)
+    #process_dataset(input_directory, output_directory, resize_images=False, apply_clahe=True)
+
+    upscale_counterfactuals(original_cf_dir="data/images/repaint_results", output_cf_dir="data/images/repaint_results_912x1520", target_sizes=(912, 1520))
