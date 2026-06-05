@@ -65,18 +65,20 @@ def create_train_argparser():
     mammo_clip_parser.add_argument('--batch_size', type=int, default=8)
     mammo_clip_parser.add_argument('--epochs', type=int, default=30)
     mammo_clip_parser.add_argument('--lr', type=float, default=5e-5)
-    mammo_clip_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
-    mammo_clip_parser.add_argument("--data_frac", default=1.0, type=float, help="Fraction of data to be used for training")
+    mammo_clip_parser.add_argument(
+        "--clip_chk_pt_path",
+        default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"),
+        type=str,
+        help="Path to Mammo-CLIP chkpt"
+    )
+    mammo_clip_parser.add_argument("--data_frac", default=1.0, type=float)
     mammo_clip_parser.add_argument("--arch", default="breast_clip_det_b5_period_n_lp", type=str)
 
-    mammo_clip_parser.add_argument("--swin_encoder", default="microsoft/swin-tiny-patch4-window7-224", type=str)
-    mammo_clip_parser.add_argument("--pretrained_swin_encoder", default="y", type=str)
-    mammo_clip_parser.add_argument("--swin_model_type", default="y", type=str)
     mammo_clip_parser.add_argument("--VER", default="084", type=str)
     mammo_clip_parser.add_argument("--alpha", default=10, type=float)
     mammo_clip_parser.add_argument("--sigma", default=15, type=float)
     mammo_clip_parser.add_argument("--p", default=1.0, type=float)
-    mammo_clip_parser.add_argument("--mean", default=0.400409, type=float) # Calculated from the VinDrMammo-CLIP-CLAHE dataset after CLAHE
+    mammo_clip_parser.add_argument("--mean", default=0.400409, type=float)
     mammo_clip_parser.add_argument("--std", default=0.259367, type=float)
     mammo_clip_parser.add_argument("--focal-alpha", default=0.6, type=float)
     mammo_clip_parser.add_argument("--focal-gamma", default=2.0, type=float)
