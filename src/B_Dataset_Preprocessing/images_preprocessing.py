@@ -47,28 +47,33 @@ def process_dataset(input_dir, output_dir, resize_images, target_size=None, appl
     
     if resize_images and target_size is None:
         raise ValueError("`target_size` must be provided when `resize_images` is True")
+
+    image_files = [
+        filename
+        for filename in os.listdir(input_dir)
+        if filename.lower().endswith('.png')
+    ]
     
-    for filename in os.listdir(input_dir):
-        if filename.lower().endswith(('.png')):
-            input_path = os.path.join(input_dir, filename)
-            output_path = os.path.join(output_dir, filename)
-            image = cv2.imread(input_path, cv2.IMREAD_GRAYSCALE)
-            if image is None:
-                raise ValueError(f"Image at path {input_path} could not be read.")
+    for filename in tqdm(image_files, desc="Processing images"):
+        input_path = os.path.join(input_dir, filename)
+        output_path = os.path.join(output_dir, filename)
+        image = cv2.imread(input_path, cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            raise ValueError(f"Image at path {input_path} could not be read.")
 
-            if resize_images:
-                # Resize the image while preserving aspect ratio and padding to target size
-                image = resize_image_with_aspect_ratio(
-                    image,
-                    target_size=target_size,
-                )
+        if resize_images:
+            # Resize the image while preserving aspect ratio and padding to target size
+            image = resize_image_with_aspect_ratio(
+                image,
+                target_size=target_size,
+            )
 
-            if apply_clahe:
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-                image = clahe.apply(image)
+        if apply_clahe:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            image = clahe.apply(image)
 
-            cv2.imwrite(output_path, image)
-            print(f"Processed {filename} and saved to {output_path}")
+        cv2.imwrite(output_path, image)
+        print(f"Processed {filename} and saved to {output_path}")
 
 
 def reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDr-Mammo-CLIP"):
@@ -105,9 +110,13 @@ def upscale_counterfactuals(original_cf_dir="data/images/repaint_results", outpu
 
     target_width, target_height = target_sizes
 
-    for filename in os.listdir(original_cf_dir):
-        if not filename.lower().endswith('.png'):
-            continue
+    image_files = [
+        filename
+        for filename in os.listdir(original_cf_dir)
+        if filename.lower().endswith('.png')
+    ]
+
+    for filename in tqdm(image_files, desc="Upscaling counterfactuals"):
 
         input_path = os.path.join(original_cf_dir, filename)
         output_path = os.path.join(output_cf_dir, filename)
