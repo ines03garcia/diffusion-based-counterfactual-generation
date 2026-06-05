@@ -2,6 +2,8 @@
 import cv2
 import os
 import shutil
+import numpy as np
+from tqdm import tqdm
 
 def resize_image_with_aspect_ratio(image, target_size=512):
     """
@@ -132,6 +134,40 @@ def upscale_counterfactuals(original_cf_dir="data/images/repaint_results", outpu
         cv2.imwrite(output_path, image)
         print(f"Saved resized {filename} to {output_path} with shape {image.shape[1]}x{image.shape[0]}")
 
+# Given a directory with images, calculate and print the mean and std of pixel values across the dataset
+def print_mean_std(image_dir):
+    pixel_count = 0
+    pixel_sum = 0.0
+    pixel_sum_sq = 0.0
+
+    image_files = [
+        filename
+        for filename in os.listdir(image_dir)
+        if filename.lower().endswith('.png')
+    ]
+
+    for filename in tqdm(image_files, desc="Calculating mean/std"):
+        image_path = os.path.join(image_dir, filename)
+        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if image is not None:
+            image_float = image.astype(np.float64)
+            pixel_count += image_float.size
+            pixel_sum += image_float.sum()
+            pixel_sum_sq += np.square(image_float).sum()
+        else:
+            print(f"Warning: Could not read image {image_path}")
+
+    if pixel_count:
+        mean_val = pixel_sum / pixel_count
+        variance = (pixel_sum_sq / pixel_count) - (mean_val ** 2)
+        std_val = np.sqrt(max(variance, 0.0))
+        normalized_mean = mean_val / 255.0
+        normalized_std = std_val / 255.0
+        print(f"Dataset Mean (0-255): {mean_val:.6f}, Std (0-255): {std_val:.6f}")
+        print(f"Dataset Mean (0-1): {normalized_mean:.6f}, Std (0-1): {normalized_std:.6f}")
+    else:
+        print("No pixel values found to calculate mean and std.")
+
 
 if __name__ == "__main__":
     input_directory = "data/images/VinDrMammo-CLIP" # Input images directory
@@ -141,4 +177,6 @@ if __name__ == "__main__":
     
     #process_dataset(input_directory, output_directory, resize_images=False, apply_clahe=True)
 
-    upscale_counterfactuals(original_cf_dir="data/images/repaint_results", output_cf_dir="data/images/repaint_results_912x1520", target_sizes=(912, 1520))
+    #upscale_counterfactuals(original_cf_dir="data/images/repaint_results", output_cf_dir="data/images/repaint_results_912x1520", target_sizes=(912, 1520))
+
+    print_mean_std(output_directory)
