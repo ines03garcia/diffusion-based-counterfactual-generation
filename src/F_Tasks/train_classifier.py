@@ -325,7 +325,12 @@ def main():
                     log.info(f"Enabled DataParallel across {torch.cuda.device_count()} CUDA devices")
                 
                 # Freeze initial feature layers/encoder blocks
-                if args.freeze_layers > 0:
+                if args.model_type == "mammo-clip":
+                    if args.arch.lower().endswith("_lp"):
+                        log.info("Mammo-CLIP linear probe selected via arch; image encoder remains frozen.")
+                    else:
+                        log.info("Mammo-CLIP fine-tuning selected via arch; image encoder is trainable from the start.")
+                elif args.freeze_layers > 0:
                     unwrap_model(model).freeze_layers(args.freeze_layers)
                     log.info(f"Frozen first {args.freeze_layers} layers of the {args.model_type} feature extractor")
                 else:
@@ -394,8 +399,8 @@ def main():
                     epoch_start_time = time.time()
                     log.info(f"\n{'='*15}Epoch {epoch+1}/{args.epochs}{'='*15}")
 
-                    # Gradual unfreezing
-                    if epoch == args.epochs // 4 or epoch == args.epochs // 2:  # Unfreeze after 25% and 50% of training
+                    # Gradual unfreezing for non-Mammo-CLIP models only.
+                    if args.model_type != "mammo-clip" and (epoch == args.epochs // 4 or epoch == args.epochs // 2):  # Unfreeze after 25% and 50% of training
                         unwrap_model(model).unfreeze_layers(epoch, args.epochs)
 
                     # Train

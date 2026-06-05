@@ -165,7 +165,10 @@ def mixup_batch(images, labels, alpha=1.0):
 	return mixed_images, mixed_labels, mix_coef
 
 def build_model(args, device, experiment="train"):
-	num_classes = 2 if args.loss == "low" else 1
+	# Prefer explicit --num-classes for downstream models when provided
+	num_classes = getattr(args, 'num_classes', None)
+	if num_classes is None or args.loss == "low":
+		num_classes = 2 if args.loss == "low" else 1
 
 	if args.model_type == "convnext":
 		from src.D_Models.ClassifierConvNeXt import ConvNeXtClassifier
