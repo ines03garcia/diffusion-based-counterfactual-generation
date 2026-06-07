@@ -6,47 +6,20 @@ from src.D_Models.MammoCLIP.breastclip.model.modules import load_image_encoder, 
 class BreastClipClassifier(nn.Module):
     def __init__(self, args, ckpt, n_class):
         super(BreastClipClassifier, self).__init__()
+
         print(ckpt["config"]["model"]["image_encoder"])
-        # Allow overriding the image encoder configuration from args (e.g. specify a Swin encoder)
         self.config = ckpt["config"]["model"]["image_encoder"]
-        # If user provided a different HF encoder (e.g. --swin_encoder), override config.
-        if hasattr(args, "swin_encoder") and args.swin_encoder:
-            # Only override name/model_type for HF-based encoders
-            self.config["name"] = args.swin_encoder
-            # if user indicates swin model type flag, prefer 'swin'
-            if hasattr(args, "swin_model_type") and args.swin_model_type in ("y", True):
-                self.config["model_type"] = "swin"
-            # Honor pretrained flag for the new encoder if provided
-            if hasattr(args, "pretrained_swin_encoder"):
-                self.config["pretrained"] = True if args.pretrained_swin_encoder == "y" else False
-
-        # Instantiate image encoder using the (possibly overridden) config
-        self.image_encoder = load_image_encoder(self.config)
-
-        # Try to load image encoder weights from checkpoint only if encoder name/type matches
+        self.image_encoder = load_image_encoder(ckpt["config"]["model"]["image_encoder"])
         image_encoder_weights = {}
-        ckpt_contains_image_weights = any(k.startswith("image_encoder.") for k in ckpt.get("model", {}).keys())
-        if ckpt_contains_image_weights and (not hasattr(args, "swin_encoder") or not args.swin_encoder):
-            for k in ckpt["model"].keys():
-                if k.startswith("image_encoder."):
-                    image_encoder_weights[".".join(k.split(".")[1:])] = ckpt["model"][k]
-            try:
-                self.image_encoder.load_state_dict(image_encoder_weights, strict=True)
-            except Exception:
-                # fallback: ignore strict loading when shapes/names differ
-                try:
-                    self.image_encoder.load_state_dict(image_encoder_weights, strict=False)
-                except Exception:
-                    print("Warning: could not load image encoder weights from checkpoint for the overridden encoder.")
-
-        # record encoder type from final config
-        self.image_encoder_type = self.config.get("model_type", ckpt["config"]["model"]["image_encoder"].get("model_type"))
+        for k in ckpt["model"].keys():
+            if k.startswith("image_encoder."):
+                image_encoder_weights[".".join(k.split(".")[1:])] = ckpt["model"][k]
+        self.image_encoder.load_state_dict(image_encoder_weights, strict=True)
+        self.image_encoder_type = ckpt["config"]["model"]["image_encoder"]["model_type"]
         self.arch = args.arch.lower()
         if (
-                args.arch.lower() == "upmc_breast_clip_det_b5_period_n_lp" or
-                args.arch.lower() == "upmc_vindr_breast_clip_det_b5_period_n_lp" or
-                args.arch.lower() == "upmc_breast_clip_det_b2_period_n_lp" or
-                args.arch.lower() == "upmc_vindr_breast_clip_det_b2_period_n_lp"):
+                args.arch.lower() == "breast_clip_det_b5_period_n_lp" or
+                args.arch.lower() == "breast_clip_det_b2_period_n_lp"):
             print("freezing image encoder to not be trained")
             for param in self.image_encoder.parameters():
                 param.requires_grad = False
