@@ -473,7 +473,7 @@ def main():
                             log=log,
                         )
 
-                    if args.save_checkpoints > 0 and (epoch + 1) % args.save_checkpoints == 0:
+                    if args.save_checkpoints > 0 and (epoch + 1) % args.save_checkpoints == 0 and epoch < args.epochs - 1:
                         save_path = os.path.join(fold_results_dir, f'checkpoint_epoch_{epoch+1}.pth')
 
                         save_checkpoint(save_path, model, optimizer, epoch, args)
