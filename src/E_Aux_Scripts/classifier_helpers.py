@@ -1,5 +1,6 @@
 import os
 from PIL.Image import Image
+from tqdm import tqdm
 import numpy as np
 import math
 import torch
@@ -565,7 +566,7 @@ def run_inference(model, dataloader, device):
 	all_image_ids = []
 
 	with torch.no_grad():
-		for images, labels, image_ids in dataloader:
+		for images, labels, image_ids in tqdm(dataloader, desc="Testing", total=len(dataloader)):
 			images = images.to(device)
 			labels = labels.to(device).float().view(-1)
 
