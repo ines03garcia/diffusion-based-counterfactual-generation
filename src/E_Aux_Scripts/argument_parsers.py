@@ -27,8 +27,6 @@ def create_train_argparser():
     cf_aug_group = parser.add_mutually_exclusive_group()
     cf_aug_group.add_argument('--use_counterfactuals', action='store_true', default=False, help='Include counterfactual examples in the training dataset')
     cf_aug_group.add_argument('--add_cf_batch', action='store_true', default=False, help='Add corresponding counterfactuals to batches with their original images')
-    parser.add_argument('--pair_loss_weight', type=float, default=0.0, help='Weight for counterfactual pair consistency loss when using --add_cf_batch')
-    parser.add_argument('--pair_loss_type', type=str, choices=['kl', 'mse'], default='kl', help='Pair consistency loss type used in the joint objective')
     
     validation_mode_group = parser.add_mutually_exclusive_group()
     validation_mode_group.add_argument('--cross-validation', action='store_true', default=False, help='Whether to perform cross-validation')
@@ -101,6 +99,8 @@ def create_train_argparser():
     fpn_mil_parser.add_argument('--source_image', type=str, default='patches', choices=['patches', 'full_image'])
     fpn_mil_parser.add_argument('--patch_size', type=int, default=512)
     fpn_mil_parser.add_argument('--overlap', type=float, nargs='*', default=[0.0])
+    fpn_mil_parser.add_argument("--mean", default=0.400409, type=float)
+    fpn_mil_parser.add_argument("--std", default=0.259367, type=float)
 
     # FPN-MIL: MIL model parameters
     fpn_mil_parser.add_argument('--mil_type', default='pyramidal_mil', choices=[None, 'instance', 'embedding', 'pyramidal_mil'], type=str, help="MIL approach")
@@ -238,6 +238,8 @@ def create_test_argparser():
     fpn_mil_parser.add_argument("--fcl_dropout", type=float, default=0.0)
     fpn_mil_parser.add_argument("--lamda", type=float, default=0.0)
     fpn_mil_parser.add_argument("--nested_model", action="store_true", default=False)
+    fpn_mil_parser.add_argument("--mean", default=0.400409, type=float)
+    fpn_mil_parser.add_argument("--std", default=0.259367, type=float)
 
     return parser
 
