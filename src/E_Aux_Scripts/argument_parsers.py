@@ -127,9 +127,9 @@ def create_train_argparser():
 
     # FPN-MIL: Regularization parameters
     fpn_mil_parser.add_argument('--drop_classhead', type=float, default=0.0, metavar='PCT', help='Dropout rate used in the classification head (default: 0.)')
-    fpn_mil_parser.add_argument('--drop_attention_pool', type=float, default=0.0, metavar='PCT', help='Dropout rate used in the attention pooling mechanism (default: 0.)')
+    fpn_mil_parser.add_argument('--drop_attention_pool', type=float, default=0.25, metavar='PCT', help='Dropout rate used in the attention pooling mechanism (default: 0.)')
     fpn_mil_parser.add_argument('--drop_mha', type=float, default=0.0, metavar='PCT', help='Dropout rate used in the attention pooling mechanism (default: 0.)')
-    fpn_mil_parser.add_argument('--fcl_dropout', type=float, default=0.0)
+    fpn_mil_parser.add_argument('--fcl_dropout', type=float, default=0.25)
     fpn_mil_parser.add_argument("--lamda", type=float, default=0.0,
                                 help='lambda used for balancing cross-entropy loss and rank loss.')
 
