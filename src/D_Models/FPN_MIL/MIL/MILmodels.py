@@ -158,6 +158,7 @@ class ConcatAggregator(nn.Module):
 class MIL(nn.Module):
     
     def __init__(self,
+                arch: str = None,
                 is_training: bool = True, 
                 multi_scale_model: str = None,
                 inst_encoder: nn.Module = None, 
@@ -182,7 +183,7 @@ class MIL(nn.Module):
                 trans_layer_norm: bool = False) -> None:
     
         super().__init__()
-        
+        self.arch = arch.lower() if arch is not None else ""
         self.num_classes = num_classes
         self.sigmoid_func = sigmoid_func
         self.drop_classhead = drop_classhead
@@ -217,53 +218,34 @@ class MIL(nn.Module):
             self.aggregator = self.MILAggregator(fcl_encoder_dim)
             self.classifier = head(fcl_encoder_dim, num_classes, sigmoid_func, drop_classhead)
 
-    def freeze_layers(self, freeze_layers=0):
-        """Freeze initial layers when an online instance encoder exists.
+        if self.arch.endswith("_lp"):
+            logger.info("FPN-MIL: linear probing selected via arch; freezing instance encoder.")
+            self.freeze_image_encoder()
+        else:
+            logger.info("FPN-MIL: fine-tuning selected via arch; instance encoder is trainable.")
 
-        For offline feature extraction there is no trainable image backbone, so this is a no-op.
-        """
-        if freeze_layers <= 0 or self.inst_encoder is None:
+    def freeze_image_encoder(self):
+        """Freeze the full online instance/image encoder for linear probing."""
+        if self.inst_encoder is None:
+            logger.info("FPN-MIL: no online instance encoder to freeze; using offline features.")
             return 0
 
-        if hasattr(self.inst_encoder, "children"):
-            blocks = list(self.inst_encoder.children())
-            n_to_freeze = min(freeze_layers, len(blocks))
-            frozen_params = 0
-            for i in range(n_to_freeze):
-                for param in blocks[i].parameters():
-                    if param.requires_grad:
-                        param.requires_grad = False
-                        frozen_params += 1
-            logger.info(
-                f"FPN-MIL: froze first {n_to_freeze} instance-encoder blocks ({frozen_params} parameters)."
-            )
-            return frozen_params
+        frozen_tensors = 0
+        frozen_scalars = 0
 
-        return 0
+        for param in self.inst_encoder.parameters():
+            if param.requires_grad:
+                param.requires_grad = False
+                frozen_tensors += 1
+                frozen_scalars += param.numel()
 
-    def unfreeze_layers(self, current_epoch, total_epochs):
-        """Staged unfreezing hook for trainer compatibility.
+        logger.info(
+            f"FPN-MIL: froze full instance encoder "
+            f"({frozen_tensors} tensors, {frozen_scalars:,} scalar parameters)."
+        )
 
-        Applies only when an online instance encoder is used.
-        """
-        if self.inst_encoder is None or total_epochs <= 0:
-            return 0
-
-        if current_epoch == total_epochs // 4:
-            # Unfreeze instance encoder at the first stage.
-            for param in self.inst_encoder.parameters():
-                param.requires_grad = True
-            logger.info("FPN-MIL: unfroze instance encoder at 25% of training.")
-            return 1
-
-        if current_epoch == total_epochs // 2:
-            # Unfreeze all trainable components.
-            for param in self.parameters():
-                param.requires_grad = True
-            logger.info("FPN-MIL: unfroze full model at 50% of training.")
-            return 1
-
-        return 0
+        return frozen_tensors
+    
 
     def MILEncoder(self, dim_in, dim_hidden, scale = None, type_encoder = None) -> None:
         """

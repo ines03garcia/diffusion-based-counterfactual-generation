@@ -1,6 +1,10 @@
+import logging
+
 from torch import nn
 
 from src.D_Models.MammoCLIP.breastclip.model.modules import load_image_encoder, LinearClassifier
+
+logger = logging.getLogger(__name__)
 
 
 class BreastClipClassifier(nn.Module):
@@ -17,12 +21,11 @@ class BreastClipClassifier(nn.Module):
         self.image_encoder.load_state_dict(image_encoder_weights, strict=True)
         self.image_encoder_type = ckpt["config"]["model"]["image_encoder"]["model_type"]
         self.arch = args.arch.lower()
-        if (
-                args.arch.lower() == "breast_clip_det_b5_period_n_lp" or
-                args.arch.lower() == "breast_clip_det_b2_period_n_lp"):
-            print("freezing image encoder to not be trained")
-            for param in self.image_encoder.parameters():
-                param.requires_grad = False
+        if self.arch.endswith("_lp"):
+            logger.info("Linear probing selected via arch; image encoder remains frozen.")
+            self.freeze_image_encoder()
+        else:
+            logger.info("Finetuning selected via arch; image encoder isn't frozen.")
 
         self.classifier = LinearClassifier(feature_dim=self.image_encoder.out_dim, num_class=n_class)
         self.raw_features = None
@@ -48,13 +51,27 @@ class BreastClipClassifier(nn.Module):
             global_features = image_features[:, 0]
             return global_features
     
-    def freeze_layers(self, freeze_layers=0):
-        # Mammo-CLIP controls freezing through args.arch; skipping manual freeze_layers handling
-        pass
+    def freeze_image_encoder(self):
+        """Freeze the full Mammo-CLIP image encoder for linear probing."""
+        if not hasattr(self, "image_encoder") or self.image_encoder is None:
+            logger.info("Mammo-CLIP: no image encoder found to freeze.")
+            return 0
 
-    def unfreeze_layers(self, current_epoch, total_epochs):
-        # Mammo-CLIP controls unfreezing through args.arch; skipping manual unfreeze_layers handling
-        pass
+        frozen_tensors = 0
+        frozen_scalars = 0
+
+        for param in self.image_encoder.parameters():
+            if param.requires_grad:
+                param.requires_grad = False
+                frozen_tensors += 1
+                frozen_scalars += param.numel()
+
+        logger.info(
+            f"Mammo-CLIP: froze full image encoder "
+            f"({frozen_tensors} tensors, {frozen_scalars:,} scalar parameters)."
+        )
+
+        return frozen_tensors
 
     def forward(self, images):
         if self.image_encoder_type.lower() == "swin":
@@ -82,12 +99,6 @@ class MammoClipInputAdapter(nn.Module):
             raise ValueError(f"Unsupported Mammo-CLIP input shape: {tuple(images.shape)}")
 
         return images
-
-    def freeze_layers(self, freeze_layers=0):
-        return self.base_model.freeze_layers(freeze_layers)
-
-    def unfreeze_layers(self, current_epoch, total_epochs):
-        return self.base_model.unfreeze_layers(current_epoch, total_epochs)
 
     def forward(self, images):
         return self.base_model(self._prepare_inputs(images))

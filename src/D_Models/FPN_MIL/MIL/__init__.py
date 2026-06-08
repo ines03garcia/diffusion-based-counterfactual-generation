@@ -22,12 +22,6 @@ class FpnMilInputAdapter(nn.Module):
             return images
         raise ValueError(f"Unsupported FPN-MIL input shape: {tuple(images.shape)}")
 
-    def freeze_layers(self, freeze_layers=0):
-        return self.base_model.freeze_layers(freeze_layers)
-
-    def unfreeze_layers(self, current_epoch, total_epochs):
-        return self.base_model.unfreeze_layers(current_epoch, total_epochs)
-
     def forward(self, images):
         output = self.base_model(self._prepare_inputs(images))
 
@@ -35,6 +29,10 @@ class FpnMilInputAdapter(nn.Module):
         if isinstance(output, (tuple, list)):
             return output[0]
         return output
+
+    def freeze_image_encoder(self):
+        return self.base_model.freeze_image_encoder()
+
 
 def build_model(args): 
 
@@ -62,7 +60,8 @@ def build_model(args):
             num_chs = args.feat_dim # feat dim of pre-extracted features 
            
     ########################### Define the MIL Model ###########################
-    mil_args = dict(is_training = args.train, #not args.roi_eval, 
+    mil_args = dict(arch=args.arch,
+                    is_training = args.train, #not args.roi_eval, 
                     multi_scale_model = args.multi_scale_model,  
                     inst_encoder=feature_extractor,
                     embedding_size=num_chs,

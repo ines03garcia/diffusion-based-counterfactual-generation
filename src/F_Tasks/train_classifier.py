@@ -316,17 +316,17 @@ def main():
                     model = nn.DataParallel(model)
                     log.info(f"Enabled DataParallel across {torch.cuda.device_count()} CUDA devices")
                 
-                # Freeze initial feature layers/encoder blocks
-                if args.model_type == "mammo-clip":
+                # Freeze image encoder blocks
+                if args.model_type == "mammo-clip" or args.model_type == "fpn-mil":
                     if args.arch.lower().endswith("_lp"):
-                        log.info("Mammo-CLIP linear probe selected via arch; image encoder remains frozen.")
+                        log.info("Linear probing selected via arch; image encoder remains frozen.")
+                        unwrap_model(model).freeze_image_encoder()
                     else:
-                        log.info("Mammo-CLIP fine-tuning selected via arch; image encoder is trainable from the start.")
-                elif args.freeze_layers > 0:
-                    unwrap_model(model).freeze_layers(args.freeze_layers)
-                    log.info(f"Frozen first {args.freeze_layers} layers of the {args.model_type} feature extractor")
+                        log.info("Finetuning selected via arch; image encoder isn't frozen.")
                 else:
-                    log.info("No frozen layers: training all parameters from start")
+                    if args.freeze_layers > 0:
+                        log.info(f"Freezing the first {args.freeze_layers} layers of the model as specified by --freeze_layers.")
+                        unwrap_model(model).freeze_layers(args.freeze_layers)
                 
                 # Create optimizer with appropriate learning rates
                 optimizer = create_optimizer(model, args)
@@ -391,8 +391,8 @@ def main():
                     epoch_start_time = time.time()
                     log.info(f"\n{'='*15}Epoch {epoch+1}/{args.epochs}{'='*15}")
 
-                    # Gradual unfreezing for non-Mammo-CLIP models only.
-                    if args.model_type != "mammo-clip" and (epoch == args.epochs // 4 or epoch == args.epochs // 2):  # Unfreeze after 25% and 50% of training
+                    # Gradual unfreezing for non-Mammo-CLIP and non-FPN-MIL models only.
+                    if args.model_type != "mammo-clip" and args.model_type != "fpn-mil" and (epoch == args.epochs // 4 or epoch == args.epochs // 2):  # Unfreeze after 25% and 50% of training
                         unwrap_model(model).unfreeze_layers(epoch, args.epochs)
 
                     # Train
