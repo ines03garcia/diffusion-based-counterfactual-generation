@@ -298,24 +298,20 @@ def create_transforms(
 	if augmentation_type == "none":
 		train_transform = transforms.Compose([
 			transforms.Lambda(lambda img: img.convert("RGB")),
-			transforms.Resize((224, 224)),
 			transforms.ToTensor(),
 			normalize,
 		])
 	else:
 		train_transform = transforms.Compose([
 			transforms.Lambda(lambda img: img.convert("RGB")),
-			transforms.Resize((224, 224)),
 			transforms.RandomHorizontalFlip(p=0.5),
 			transforms.RandomRotation(degrees=15),
-			transforms.ColorJitter(brightness=0.2, contrast=0.2),
 			transforms.ToTensor(),
 			normalize,
 		])
 
 	val_transform = transforms.Compose([
 		transforms.Lambda(lambda img: img.convert("RGB")),
-		transforms.Resize((224, 224)),
 		transforms.ToTensor(),
 		normalize,
 	])
