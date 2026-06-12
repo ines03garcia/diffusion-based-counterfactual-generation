@@ -37,7 +37,7 @@ class FeaturePyramidNetwork(nn.Module):
         self.upsample_method = upsample_method
 
         self.backbone = backbone
-        in_channels_list = [120, 352]
+        in_channels_list = [128, 176] # For b5 backbone
         
         if norm_layer: 
             norm_layer = nn.GroupNorm(num_groups = 1, num_channels = out_channels)

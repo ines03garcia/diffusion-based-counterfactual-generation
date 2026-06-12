@@ -88,13 +88,13 @@ def create_train_argparser():
     fpn_mil_parser.add_argument('--batch_size', type=int, default=8)
     fpn_mil_parser.add_argument('--epochs', type=int, default=30)
     fpn_mil_parser.add_argument('--lr', type=float, default=5e-5)
-    fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b2-model-best-epoch-10.tar"), type=str, help="Path to Mammo-CLIP chkpt")
-    fpn_mil_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b2_period_n_lp", type=str)
+    fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
+    fpn_mil_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
 
     # FPN-MIL: Patch extraction
     fpn_mil_parser.add_argument("--img-size", nargs='+', default=[1520, 912])
     fpn_mil_parser.add_argument("--feature_extraction", default='online', type=str)
-    fpn_mil_parser.add_argument("--feat_dim", default=352, type=int)
+    fpn_mil_parser.add_argument("--feat_dim", default=176, type=int)
     fpn_mil_parser.add_argument('--patching', action='store_true', default=True, help='Whether to perform patching on full-resolution images. If false, it will consider previously extracted patches that were saved in a directory (default: True)')
     fpn_mil_parser.add_argument('--source_image', type=str, default='patches', choices=['patches', 'full_image'])
     fpn_mil_parser.add_argument('--patch_size', type=int, default=512)
