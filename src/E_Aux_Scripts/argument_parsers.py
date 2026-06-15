@@ -58,6 +58,7 @@ def create_train_argparser():
     vit_parser.add_argument('--batch_size', type=int, default=8)
     vit_parser.add_argument('--epochs', type=int, default=100)
     vit_parser.add_argument('--lr', type=float, default=3e-4)
+    vit_parser.add_argument("--img-size", nargs='+', default=[1520, 912])
 
     mammo_clip_parser = subparsers.add_parser('mammo-clip')
     mammo_clip_parser.add_argument('--batch_size', type=int, default=8)

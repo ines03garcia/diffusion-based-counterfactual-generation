@@ -128,8 +128,10 @@ def build_model(args, device, experiment="train"):
 	elif args.model_type == "vit":
 		from src.D_Models.ClassifierVisionTransformer import VisionTransformerClassifier
 		model = VisionTransformerClassifier(
-			num_classes=num_classes,
-			pretrained=args.pretrained,
+			num_classes=1,
+			pretrained=True,
+			img_size=args.img_size,
+			model_name="vit_base_patch32_224",
 		).to(device)
 		log.info("ViT model created and moved to device")
 	elif args.model_type == "mammo-clip":

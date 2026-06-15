@@ -2,7 +2,7 @@ import os
 import logging
 import torch
 import torch.nn as nn
-from torchvision.models import vit_b_16
+import timm
 
 from src.config import MODELS_ROOT
 from src.E_Aux_Scripts.utils import check_internet_connection
@@ -11,61 +11,114 @@ logger = logging.getLogger(__name__)
 
 
 class VisionTransformerClassifier(nn.Module):
-    def __init__(self, num_classes=1, pretrained=True, grad_cam=False):
+    def __init__(
+        self,
+        num_classes=1,
+        pretrained=True,
+        grad_cam=False,
+        img_size=(1520, 912),
+        model_name="vit_base_patch32_224",
+        use_checkpointing=True,
+    ):
         super(VisionTransformerClassifier, self).__init__()
-        
+
+        self.grad_cam = grad_cam
+        self.model_name = model_name
+        self.img_size = img_size
+
         if pretrained:
-            # Check if internet connection is available
             if check_internet_connection():
-                logger.info("Internet connection available. Loading pretrained weights online...")
-                try:
-                    from torchvision.models import ViT_B_16_Weights
-                    self.vit = vit_b_16(weights=ViT_B_16_Weights.IMAGENET1K_V1)
-                    logger.info("Successfully loaded pretrained weights from torchvision")
-                except Exception as e:
-                    logger.error(f"Failed to load weights online: {e}")
-                    logger.info("Falling back to local weights...")
-                    self._load_local_weights()
+                logger.info(
+                    f"Internet connection available. Loading pretrained timm model "
+                    f"{model_name} with img_size={img_size}..."
+                )
+
+                self.vit = timm.create_model(
+                    model_name,
+                    pretrained=True,
+                    img_size=img_size,
+                    num_classes=num_classes,
+                )
+
+                logger.info("Successfully loaded pretrained weights from timm")
+
             else:
-                logger.info("No internet connection. Loading weights from local file...")
-                self._load_local_weights()
+                logger.info("No internet connection. Loading timm model with local weights...")
+                self._load_local_weights(num_classes=num_classes)
         else:
-            self.vit = vit_b_16(weights=None)
-        
-        # Replace classifier head
-        self.vit.heads.head = nn.Linear(self.vit.heads.head.in_features, num_classes)
-        self.grad_cam=grad_cam
-    
-    def _load_local_weights(self):
-        """Load pretrained weights from local file"""
-        weights_path = os.path.join(MODELS_ROOT, "vit_b_16-c867db91.pth")
-        
+            self.vit = timm.create_model(
+                model_name,
+                pretrained=False,
+                img_size=img_size,
+                num_classes=num_classes,
+            )
+
+        if use_checkpointing and hasattr(self.vit, "set_grad_checkpointing"):
+            logger.info("Enabling gradient checkpointing for ViT")
+            self.vit.set_grad_checkpointing(True)
+
+    def _load_local_weights(self, num_classes):
+        """
+        Load local timm-compatible weights.
+        """
+        weights_path = os.path.join(MODELS_ROOT, f"{self.model_name}.pth")
+
+        self.vit = timm.create_model(
+            self.model_name,
+            pretrained=False,
+            img_size=self.img_size,
+            num_classes=num_classes,
+        )
+
         if os.path.exists(weights_path):
-            self.vit = vit_b_16(weights=None)
-            state_dict = torch.load(weights_path, map_location='cpu')
-            self.vit.load_state_dict(state_dict)
-            logger.info(f"Loaded pretrained weights from {weights_path}")
+            state_dict = torch.load(weights_path, map_location="cpu")
+
+            # Handles checkpoints saved as {"state_dict": ...}
+            if isinstance(state_dict, dict) and "state_dict" in state_dict:
+                state_dict = state_dict["state_dict"]
+
+            missing, unexpected = self.vit.load_state_dict(state_dict, strict=False)
+
+            logger.info(f"Loaded local timm weights from {weights_path}")
+            logger.info(f"Missing keys: {missing}")
+            logger.info(f"Unexpected keys: {unexpected}")
         else:
-            raise ValueError(f"Local weights not found at {weights_path}. "
-                           f"Please download them manually or ensure internet connectivity.")
-        
+            raise ValueError(
+                f"Local weights not found at {weights_path}. "
+                f"For timm, use a timm-compatible checkpoint, not the torchvision ViT checkpoint."
+            )
+
     def freeze_layers(self, freeze_layers=0):
-        """Freeze the first layers of the model"""
-        for param in self.vit.encoder.layers[:freeze_layers].parameters():
-            param.requires_grad = False
+        """
+        Freeze the first transformer blocks.
+
+        timm ViT stores transformer blocks in self.vit.blocks.
+        """
+        if freeze_layers <= 0:
+            return
+
+        logger.info(f"Freezing first {freeze_layers} transformer blocks...")
+
+        for block in self.vit.blocks[:freeze_layers]:
+            for param in block.parameters():
+                param.requires_grad = False
 
     def unfreeze_layers(self, current_epoch, total_epochs):
-        """Gradually unfreeze layers based on current epoch"""
-        if current_epoch == total_epochs // 4:  # Unfreeze after 25% of training
-            logger.info("Unfreezing feature layers...")
-            for param in self.vit.encoder.layers.parameters():
+        """
+        Gradually unfreeze layers based on current epoch.
+        """
+        if current_epoch == total_epochs // 4:
+            logger.info("Unfreezing transformer blocks...")
+            for param in self.vit.blocks.parameters():
                 param.requires_grad = True
-        elif current_epoch == total_epochs // 2:  # Unfreeze after 50% of training
-            logger.info("Unfreezing all layers...")
+
+        elif current_epoch == total_epochs // 2:
+            logger.info("Unfreezing all ViT parameters...")
             for param in self.vit.parameters():
                 param.requires_grad = True
-    
+
     def forward(self, x):
         if self.grad_cam:
             return self.vit(x)
+
         return self.vit(x).squeeze(-1)
