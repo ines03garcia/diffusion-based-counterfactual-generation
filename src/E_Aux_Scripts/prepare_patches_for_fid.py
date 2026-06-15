@@ -3,8 +3,7 @@ import json
 import logging
 from PIL import Image
 import argparse
-
-logger = logging.getLogger(__name__)
+import numpy as np
 
 
 def get_largest_bbox_from_resized_coords(item):
@@ -90,35 +89,37 @@ def crop_counterfactuals_to_largest_bbox(
 
         image_id = item.get("image_id")
         if image_id is None:
-            logger.warning("Skipping row without image_id.")
+            print("Skipping row without image_id.")
             continue
 
         bbox = get_largest_bbox_from_resized_coords(item)
 
         if bbox is None:
-            logger.warning(f"No valid bbox found for {image_id}")
+            print(f"No valid bbox found for {image_id}")
             skipped_no_bbox += 1
             continue
 
         cf_image_path = os.path.join(cf_dir, image_id) # Load the corresponding counterfactual image from cf_dir
 
         if not os.path.exists(cf_image_path):
-            logger.warning(f"Counterfactual image not found: {cf_image_path}")
+            print(f"Counterfactual image not found: {cf_image_path}")
             skipped_missing_image += 1
             continue
 
         try:
             image = Image.open(cf_image_path).convert("L")
         except Exception as e:
-            logger.warning(f"Could not open {cf_image_path}: {e}")
+            print(f"Could not open {cf_image_path}: {e}")
             continue
 
         cropped = crop_bbox_xyxy(image, bbox) # Crop the counterfactual image to the bbox with the biggest area
 
         if cropped is None:
-            logger.warning(f"Invalid bbox {bbox} for {image_id}")
+            print(f"Invalid bbox {bbox} for {image_id}")
             skipped_invalid_bbox += 1
             continue
+
+        cropped = crop_until_no_black_boundary(cropped, threshold=5)
 
         output_name = os.path.splitext(image_id)[0] + ".png"
         output_path = os.path.join(output_dir, output_name)
@@ -126,12 +127,69 @@ def crop_counterfactuals_to_largest_bbox(
         cropped.save(output_path)
         saved_paths.append(output_path)
 
-    logger.info(f"Saved {len(saved_paths)} cropped counterfactual patches to {output_dir}")
-    logger.info(f"Skipped without bbox: {skipped_no_bbox}")
-    logger.info(f"Skipped missing image: {skipped_missing_image}")
-    logger.info(f"Skipped invalid bbox: {skipped_invalid_bbox}")
+    print(f"Saved {len(saved_paths)} cropped counterfactual patches to {output_dir}")
+    print(f"Skipped without bbox: {skipped_no_bbox}")
+    print(f"Skipped missing image: {skipped_missing_image}")
+    print(f"Skipped invalid bbox: {skipped_invalid_bbox}")
 
     return saved_paths
+
+
+def crop_until_no_black_boundary(image, threshold=5, max_iters=None):
+    """
+    Iteratively crop image boundaries until no boundary pixels are bellow the threshold.
+    """
+    arr = np.asarray(image)
+
+    if arr.ndim != 2:
+        raise ValueError("Expected a grayscale image.")
+
+    y1 = 0
+    y2 = arr.shape[0]
+    x1 = 0
+    x2 = arr.shape[1]
+
+    iters = 0
+
+    while y2 > y1 and x2 > x1:
+        cropped = arr[y1:y2, x1:x2]
+
+        changed = False
+
+        # Top row
+        if np.any(cropped[0, :] <= threshold):
+            y1 += 1
+            changed = True
+
+        # Bottom row
+        cropped = arr[y1:y2, x1:x2]
+        if cropped.shape[0] > 0 and np.any(cropped[-1, :] <= threshold):
+            y2 -= 1
+            changed = True
+
+        # Left column
+        cropped = arr[y1:y2, x1:x2]
+        if cropped.shape[1] > 0 and np.any(cropped[:, 0] <= threshold):
+            x1 += 1
+            changed = True
+
+        # Right column
+        cropped = arr[y1:y2, x1:x2]
+        if cropped.shape[1] > 0 and np.any(cropped[:, -1] <= threshold):
+            x2 -= 1
+            changed = True
+
+        if not changed:
+            break
+
+        iters += 1
+        if max_iters is not None and iters >= max_iters:
+            break
+
+    if y2 <= y1 or x2 <= x1:
+        return image
+
+    return image.crop((x1, y1, x2, y2))
 
 def main():
     parser = argparse.ArgumentParser(description="Crop counterfactuals and original images in patches and save them in folders for FID calculation.")
