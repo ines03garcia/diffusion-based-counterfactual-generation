@@ -1,0 +1,155 @@
+import os
+import json
+import logging
+from PIL import Image
+import argparse
+
+logger = logging.getLogger(__name__)
+
+
+def get_largest_bbox_from_resized_coords(item):
+    """
+    Return the largest bbox (xmin, ymin, xmax, ymax)
+    """
+    xmins = item.get("resized_xmin", [])
+    ymins = item.get("resized_ymin", [])
+    xmaxs = item.get("resized_xmax", [])
+    ymaxs = item.get("resized_ymax", [])
+
+    n_boxes = min(len(xmins), len(ymins), len(xmaxs), len(ymaxs))
+
+    if n_boxes == 0:
+        return None
+
+    largest_bbox = None
+    largest_area = 0
+
+    for i in range(n_boxes):
+        xmin = float(xmins[i])
+        ymin = float(ymins[i])
+        xmax = float(xmaxs[i])
+        ymax = float(ymaxs[i])
+
+        width = xmax - xmin
+        height = ymax - ymin
+
+        if width <= 0 or height <= 0:
+            continue
+
+        area = width * height
+
+        if area > largest_area:
+            largest_area = area
+            largest_bbox = (xmin, ymin, xmax, ymax)
+
+    if largest_bbox is None:
+        print(f"{xmins}, {ymins}, {xmaxs}, {ymaxs}")
+    return largest_bbox
+
+
+def crop_bbox_xyxy(image, bbox):
+    """
+    Crop PIL image using bbox in (xmin, ymin, xmax, ymax)
+    """
+    xmin, ymin, xmax, ymax = bbox
+    img_w, img_h = image.size
+
+    x1 = max(0, min(int(round(xmin)), img_w))
+    y1 = max(0, min(int(round(ymin)), img_h))
+    x2 = max(0, min(int(round(xmax)), img_w))
+    y2 = max(0, min(int(round(ymax)), img_h))
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    return image.crop((x1, y1, x2, y2))
+
+
+def crop_counterfactuals_to_largest_bbox(
+    metadata_path="data/metadata/processed_df_birads.json",
+    cf_dir=None,
+    output_dir=None,
+):
+    if cf_dir is None:
+        raise ValueError("cf_dir must be provided.")
+    if output_dir is None:
+        raise ValueError("output_dir must be provided.")
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+
+    saved_paths = []
+    skipped_no_bbox = 0
+    skipped_missing_image = 0
+    skipped_invalid_bbox = 0
+
+    for item in metadata:
+        if item.get("has_cf") != 1: # For every metadata row with has_cf == 1
+            continue
+
+        image_id = item.get("image_id")
+        if image_id is None:
+            logger.warning("Skipping row without image_id.")
+            continue
+
+        bbox = get_largest_bbox_from_resized_coords(item)
+
+        if bbox is None:
+            logger.warning(f"No valid bbox found for {image_id}")
+            skipped_no_bbox += 1
+            continue
+
+        cf_image_path = os.path.join(cf_dir, image_id) # Load the corresponding counterfactual image from cf_dir
+
+        if not os.path.exists(cf_image_path):
+            logger.warning(f"Counterfactual image not found: {cf_image_path}")
+            skipped_missing_image += 1
+            continue
+
+        try:
+            image = Image.open(cf_image_path).convert("L")
+        except Exception as e:
+            logger.warning(f"Could not open {cf_image_path}: {e}")
+            continue
+
+        cropped = crop_bbox_xyxy(image, bbox) # Crop the counterfactual image to the bbox with the biggest area
+
+        if cropped is None:
+            logger.warning(f"Invalid bbox {bbox} for {image_id}")
+            skipped_invalid_bbox += 1
+            continue
+
+        output_name = os.path.splitext(image_id)[0] + ".png"
+        output_path = os.path.join(output_dir, output_name)
+
+        cropped.save(output_path)
+        saved_paths.append(output_path)
+
+    logger.info(f"Saved {len(saved_paths)} cropped counterfactual patches to {output_dir}")
+    logger.info(f"Skipped without bbox: {skipped_no_bbox}")
+    logger.info(f"Skipped missing image: {skipped_missing_image}")
+    logger.info(f"Skipped invalid bbox: {skipped_invalid_bbox}")
+
+    return saved_paths
+
+def main():
+    parser = argparse.ArgumentParser(description="Crop counterfactuals and original images in patches and save them in folders for FID calculation.")
+    parser.add_argument("--metadata_path", type=str, required=True, help="Path to the metadata JSON file.")
+    parser.add_argument("--cf_dir", type=str, required=True, help="Directory containing counterfactual images.")
+    parser.add_argument("--output_dir", type=str, required=True, help="Directory where cropped counterfactual patches will be saved.")
+
+    args = parser.parse_args()
+
+    saved_paths = crop_counterfactuals_to_largest_bbox(
+        metadata_path=args.metadata_path,
+        cf_dir=args.cf_dir,
+        output_dir=args.output_dir,
+    )
+
+    print(f"Saved {len(saved_paths)} cropped counterfactual patches to:")
+    print(args.output_dir)
+
+
+if __name__ == "__main__":
+    main()
