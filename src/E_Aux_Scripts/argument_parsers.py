@@ -176,6 +176,7 @@ def create_test_argparser():
     parser.add_argument("--pretrained", action="store_true", default=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument('--loss', type=str, choices=['bce', 'low'], default='bce', help="Loss function to use during inference (default: Binary Cross-Entropy Loss with logits).")
+    parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for binary classification (default: 0.5)")
 
     subparsers = parser.add_subparsers(dest="model_type", required=True)
 

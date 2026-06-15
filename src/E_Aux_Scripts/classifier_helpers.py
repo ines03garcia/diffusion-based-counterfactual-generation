@@ -539,15 +539,14 @@ def run_inference(model, dataloader, device, threshold=0.5):
 			
 			# Handle multi-class output (when using LOWLoss, model outputs 2 classes)
 			if logits.dim() > 1 and logits.shape[1] > 1:
-				# Multi-class: take argmax, then convert class 1 to probability
-				preds_class = torch.argmax(logits, dim=1).float()
-				probs = torch.softmax(logits, dim=1)[:, 1]  # Probability of positive class
-				preds = preds_class
+				# Two-class / multi-class output: use probability of class 1
+				probs = torch.softmax(logits, dim=1)[:, 1]
+				preds = (probs >= threshold).float()
 			else:
 				# Binary classification: sigmoid
 				logits = logits.view(-1)
 				probs = torch.sigmoid(logits)
-				preds = (probs > threshold).float()
+				preds = (probs >= threshold).float()
 
 			all_probs.extend(probs.cpu().numpy().tolist())
 			all_preds.extend(preds.cpu().numpy().tolist())

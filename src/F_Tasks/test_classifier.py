@@ -268,7 +268,7 @@ def main():
 			log.info(f"Starting testing for fold {run_idx}...")
 		else:
 			log.info("Starting testing on the full test set...")
-		probs, preds, targets, image_ids = run_inference(model, test_loader, device)
+		probs, preds, targets, image_ids = run_inference(model, test_loader, device, threshold=args.threshold)
 		if args.fixed_specificity:
 			metrics, cm, preds = compute_fixed_specificity_metrics(targets, probs, args.fixed_specificity_value)
 			fpr = None
