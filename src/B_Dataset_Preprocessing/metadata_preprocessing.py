@@ -11,6 +11,7 @@ import ast
 import cv2
 import json
 import os
+import math
 
 def parse_serialized_list(value):
     """Parse various malformed serialization formats to actual list."""
@@ -45,16 +46,34 @@ def parse_serialized_list(value):
 def parse_coordinates(value):
     """Parse string representation of list to actual list of ints."""
     try:
+        def is_valid_coord(x):
+            if x is None:
+                return False
+            if isinstance(x, str) and x.strip() == "":
+                return False
+            if isinstance(x, float) and math.isnan(x):
+                return False
+            return True
+
         if isinstance(value, list):
-            return [int(x) for x in value if x]
+            return [int(float(x)) for x in value if is_valid_coord(x)]
+
         if isinstance(value, (int, float)):
-            return [int(value)] if value else []
-        
+            if isinstance(value, float) and math.isnan(value):
+                return []
+            return [int(value)]
+
         parsed = ast.literal_eval(value)
+
         if isinstance(parsed, list):
-            return [int(x) for x in parsed if x]
-        return [int(parsed)]
-    except:
+            return [int(float(x)) for x in parsed if is_valid_coord(x)]
+
+        if is_valid_coord(parsed):
+            return [int(float(parsed))]
+
+        return []
+
+    except Exception:
         print("Exception while parsing coordinates:", value)
         return []
 
@@ -261,7 +280,7 @@ if __name__ == "__main__":
     df_grouped = pd.read_csv("data/metadata/grouped_df.csv")
     print(f"Loaded {len(df_grouped)} images from grouped_df.csv")
     
-    label="calcification" # Options: "birads", "mass", "calcification"
+    label="birads" # Options: "birads", "mass", "calcification"
     resize_bboxes = False
     target_size = 512
 
