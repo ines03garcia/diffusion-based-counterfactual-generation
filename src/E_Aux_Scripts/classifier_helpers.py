@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import LambdaLR
 import logging
+from torch.amp import autocast
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
@@ -319,80 +320,113 @@ def create_transforms(
 	return train_transform, val_transform
 
 def train_epoch(
-	model,
-	dataloader,
-	criterion,
-	optimizer,
-	device,
-	add_cf_batch=False,
-	cf_dir=None,
-	transform=None,
-	use_mixup=False,
-	mixup_alpha=1.0,
-	scheduler=None,
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    device,
+    scaler,
+    add_cf_batch=False,
+    cf_dir=None,
+    transform=None,
+    use_mixup=False,
+    mixup_alpha=1.0,
+    scheduler=None,
 ):
-	"""Train for one epoch"""
-	model.train()
-	running_loss = 0.0
-	predictions = []
-	targets = []
-	uses_low_loss = _uses_low_loss(criterion)
+    """Train for one epoch with AMP mixed precision."""
+    model.train()
 
-	if use_mixup and uses_low_loss:
-		raise ValueError("MixUp is not supported with LOWLoss because it requires hard class targets.")
+    running_loss = 0.0
+    predictions = []
+    targets = []
 
-	for batch in tqdm(dataloader, desc="Training"):
-		images, labels, image_ids = batch
-		images = images.to(device)
-		labels = labels.to(device)
+    uses_low_loss = _uses_low_loss(criterion)
+    amp_enabled = device.type == "cuda"
 
-		if add_cf_batch:  # Pass this as parameter
-			images, labels = add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform)
+    if use_mixup and uses_low_loss:
+        raise ValueError(
+            "MixUp is not supported with LOWLoss because it requires hard class targets."
+        )
 
-		if use_mixup:
-			images, mixed_labels, _ = mixup_batch(images, labels, alpha=mixup_alpha)
+    for batch in tqdm(dataloader, desc="Training"):
+        images, labels, image_ids = batch
 
-		optimizer.zero_grad()
-		# Standard full-precision training path (no AMP)
-		outputs = model(images)
-		if uses_low_loss:
-			labels_for_loss = labels.long()
-		else:
-			labels_for_loss = _prepare_binary_targets(labels, outputs)
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
-		if use_mixup:
-			loss = criterion(outputs, mixed_labels)
-		else:
-			loss = criterion(outputs, labels_for_loss)
+        if add_cf_batch:
+            images, labels = add_cf_to_batch(
+                images,
+                labels,
+                image_ids,
+                cf_dir,
+                device,
+                transform,
+            )
 
-		loss.backward()
-		optimizer.step()
+        if use_mixup:
+            images, mixed_labels, _ = mixup_batch(
+                images,
+                labels,
+                alpha=mixup_alpha,
+            )
 
-		# (Training step already performed above)
+        optimizer.zero_grad(set_to_none=True)
 
-		running_loss += loss.item()
-		if uses_low_loss:
-			preds = torch.argmax(outputs, dim=1).float() # return class index with the highest score
-		else:
-			preds = (torch.sigmoid(outputs) > 0.5).float()
-		
-		predictions.extend(preds.cpu().detach().numpy())
-		# Consider the original labels when computing training metrics, even if MixUp is used (soft labels are not suitable for metric calculations)
-		targets.extend(labels.long().cpu().numpy() if uses_low_loss else labels.float().cpu().numpy())
+        with autocast("cuda", enabled=amp_enabled):
+            outputs = model(images)
 
-		# Step scheduler per batch if provided (emulates upstream behavior)
-		if scheduler is not None:
-			try:
-				scheduler.step()
-			except Exception:
-				pass
+            if uses_low_loss:
+                labels_for_loss = labels.long()
+            else:
+                labels_for_loss = _prepare_binary_targets(labels, outputs)
 
-	epoch_loss = running_loss / len(dataloader)
-	epoch_acc = accuracy_score(targets, predictions)
-	epoch_f1 = f1_score(targets, predictions, average='weighted', zero_division=0)
+            if use_mixup:
+                loss = criterion(outputs, mixed_labels)
+            else:
+                loss = criterion(outputs, labels_for_loss)
 
-	return epoch_loss, epoch_acc, epoch_f1
+        scaler.scale(loss).backward()
 
+        old_scale = scaler.get_scale()
+
+        scaler.step(optimizer)
+        scaler.update()
+
+        new_scale = scaler.get_scale()
+
+        # Only step the scheduler if AMP did not skip the optimizer step.
+        if scheduler is not None and new_scale >= old_scale:
+            scheduler.step()
+
+        # This syncs one scalar per batch.
+        running_loss += loss.detach().float().item()
+
+        with torch.no_grad():
+            if uses_low_loss:
+                preds = torch.argmax(outputs, dim=1).float()
+                metric_labels = labels.long()
+            else:
+                preds = (torch.sigmoid(outputs.float()) > 0.5).float()
+                metric_labels = labels.float()
+
+        # Store tensors and convert to NumPy only once at the end.
+        predictions.append(preds.detach().cpu())
+        targets.append(metric_labels.detach().cpu())
+
+    predictions = torch.cat(predictions).numpy()
+    targets = torch.cat(targets).numpy()
+
+    epoch_loss = running_loss / len(dataloader)
+    epoch_acc = accuracy_score(targets, predictions)
+    epoch_f1 = f1_score(
+        targets,
+        predictions,
+        average="weighted",
+        zero_division=0,
+    )
+
+    return epoch_loss, epoch_acc, epoch_f1
 
 def validate_epoch(model, dataloader, criterion, device):
 	"""Validate for one epoch"""
@@ -489,7 +523,7 @@ def get_test_dataset(args, test_transform):
 	raise ValueError(f"Unsupported dataset: {args.dataset}")
 
 
-def run_inference(model, dataloader, device):
+def run_inference(model, dataloader, device, threshold=0.5):
 	model.eval()
 	all_probs = []
 	all_preds = []
@@ -513,7 +547,7 @@ def run_inference(model, dataloader, device):
 				# Binary classification: sigmoid
 				logits = logits.view(-1)
 				probs = torch.sigmoid(logits)
-				preds = (probs > 0.5).float()
+				preds = (probs > threshold).float()
 
 			all_probs.extend(probs.cpu().numpy().tolist())
 			all_preds.extend(preds.cpu().numpy().tolist())

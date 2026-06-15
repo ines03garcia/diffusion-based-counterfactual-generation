@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
+from torch.amp import GradScaler
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
@@ -312,9 +313,9 @@ def main():
 
                 # Create model
                 model = build_model(args, device, experiment="train")
-                if device.type == 'cuda' and torch.cuda.device_count() > 1:
-                    model = nn.DataParallel(model)
-                    log.info(f"Enabled DataParallel across {torch.cuda.device_count()} CUDA devices")
+                #if device.type == 'cuda' and torch.cuda.device_count() > 1:
+                    #model = nn.DataParallel(model)
+                    #log.info(f"Enabled DataParallel across {torch.cuda.device_count()} CUDA devices")
                 
                 # Freeze image encoder blocks
                 if args.model_type == "mammo-clip" or args.model_type == "fpn-mil":
@@ -387,17 +388,22 @@ def main():
                     history['val_loss'] = []
                     history['val_f1'] = []
 
+                scaler = GradScaler("cuda", enabled=(device.type == "cuda"))
+
                 for epoch in range(start_epoch, args.epochs):
                     epoch_start_time = time.time()
                     log.info(f"\n{'='*15}Epoch {epoch+1}/{args.epochs}{'='*15}")
 
+                    ###############################
+                    # Removing unfreezing for now #   
+                    ###############################   
                     # Gradual unfreezing for non-Mammo-CLIP and non-FPN-MIL models only.
-                    if args.model_type != "mammo-clip" and args.model_type != "fpn-mil" and (epoch == args.epochs // 4 or epoch == args.epochs // 2):  # Unfreeze after 25% and 50% of training
-                        unwrap_model(model).unfreeze_layers(epoch, args.epochs)
+                    #if args.model_type != "mammo-clip" and args.model_type != "fpn-mil" and (epoch == args.epochs // 4 or epoch == args.epochs // 2):  # Unfreeze after 25% and 50% of training
+                        #unwrap_model(model).unfreeze_layers(epoch, args.epochs)
 
                     # Train
                     train_loss, train_acc, train_f1 = train_epoch(
-                        model, train_loader, criterion, optimizer, device,
+                        model, train_loader, criterion, optimizer, device, scaler,
                         add_cf_batch=args.add_cf_batch,
                         cf_dir=args.cf_dir,
                         transform=train_transform,
