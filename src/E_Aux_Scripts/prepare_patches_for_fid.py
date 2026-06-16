@@ -1,6 +1,5 @@
 import os
 import json
-import logging
 from PIL import Image
 import argparse
 import numpy as np
@@ -63,17 +62,34 @@ def crop_bbox_xyxy(image, bbox):
 
     return image.crop((x1, y1, x2, y2))
 
+def get_healthy_patch(metadata_path, data_dir, bbox, laterality, view, healthy_output_dir):
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+
+    already_saved_healthy_ids = set(os.listdir(healthy_output_dir))
+
+    for item in metadata:
+        if item.get("healthy") == 1 and item.get("laterality") == laterality and item.get("view") == view and item.get("image_id") not in already_saved_healthy_ids:
+            img = Image.open(os.path.join(data_dir, item.get("image_id"))).convert("L")
+            img = crop_bbox_xyxy(img, bbox)
+            img = crop_until_no_black_boundary(img, threshold=5)
+            return img, item.get("image_id")
+    return None, None
+
 
 def crop_counterfactuals_to_largest_bbox(
     metadata_path="data/metadata/processed_df_birads.json",
     cf_dir=None,
     output_dir=None,
+    data_dir=None,
+    healthy_output_dir="/home/csantiago/inescgarcia/diffusion-based-counterfactual-generation/data/images/healthy_patches_for_fid"
 ):
     if cf_dir is None:
         raise ValueError("cf_dir must be provided.")
     if output_dir is None:
         raise ValueError("output_dir must be provided.")
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(healthy_output_dir, exist_ok=True)
 
     with open(metadata_path, "r") as f:
         metadata = json.load(f)
@@ -121,11 +137,17 @@ def crop_counterfactuals_to_largest_bbox(
 
         cropped = crop_until_no_black_boundary(cropped, threshold=5)
 
-        output_name = os.path.splitext(image_id)[0] + ".png"
-        output_path = os.path.join(output_dir, output_name)
+        output_path = os.path.join(output_dir, image_id)
 
         cropped.save(output_path)
         saved_paths.append(output_path)
+
+        healthy_patch, healthy_id = get_healthy_patch(metadata_path, data_dir, bbox, item.get("laterality"), item.get("view"), healthy_output_dir)
+        if healthy_patch is not None:
+            healthy_patch.save(os.path.join(healthy_output_dir, healthy_id))
+            print(f"Saved healthy patch for {healthy_id} corresponding to {image_id} at {os.path.join(healthy_output_dir, healthy_id)}")
+        else:
+            print(f"No healthy patch found for {image_id} with laterality {item.get('laterality')} and view {item.get('view')}")
 
     print(f"Saved {len(saved_paths)} cropped counterfactual patches to {output_dir}")
     print(f"Skipped without bbox: {skipped_no_bbox}")
@@ -195,6 +217,7 @@ def main():
     parser = argparse.ArgumentParser(description="Crop counterfactuals and original images in patches and save them in folders for FID calculation.")
     parser.add_argument("--metadata_path", type=str, required=True, help="Path to the metadata JSON file.")
     parser.add_argument("--cf_dir", type=str, required=True, help="Directory containing counterfactual images.")
+    parser.add_argument("--data_dir", type=str, required=True, help="Directory containing original images.")
     parser.add_argument("--output_dir", type=str, required=True, help="Directory where cropped counterfactual patches will be saved.")
 
     args = parser.parse_args()
@@ -202,6 +225,7 @@ def main():
     saved_paths = crop_counterfactuals_to_largest_bbox(
         metadata_path=args.metadata_path,
         cf_dir=args.cf_dir,
+        data_dir=args.data_dir,
         output_dir=args.output_dir,
     )
 
