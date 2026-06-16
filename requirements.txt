@@ -34,3 +34,5 @@ imgaug
 xlrd
 # FID calculation
 pytorch-fid
+# Radiologist assessment
+openpyxl

@@ -694,6 +694,19 @@ def main():
 
     # Calculate statistics per image
     table1_organized = calculate_stats(table1_organized)
+
+    # Keep only image_ids whose table 1 mean_rating is >= 2.5
+    valid_image_ids = table1_organized.loc[
+        table1_organized["mean_rating"] >= 2.5,
+        "image_id"
+    ].unique()
+
+    # Filter table 2 using those image_ids
+    table2_organized = table2_organized[
+        table2_organized["image_id"].isin(valid_image_ids)
+    ].copy()
+
+    # Calculate statistics per image for table 2
     table2_organized = calculate_stats(table2_organized)
 
     # Calculate statistics per rater
