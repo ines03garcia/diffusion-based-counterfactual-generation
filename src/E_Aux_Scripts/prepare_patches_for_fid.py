@@ -136,6 +136,7 @@ def crop_counterfactuals_to_largest_bbox(
             continue
 
         cropped = crop_until_no_black_boundary(cropped, threshold=5)
+        cropped = cropped.resize((299, 299), Image.BICUBIC)
 
         output_path = os.path.join(output_dir, image_id)
 
@@ -144,6 +145,7 @@ def crop_counterfactuals_to_largest_bbox(
 
         healthy_patch, healthy_id = get_healthy_patch(metadata_path, data_dir, bbox, item.get("laterality"), item.get("view"), healthy_output_dir)
         if healthy_patch is not None:
+            healthy_patch = healthy_patch.resize((299, 299), Image.BICUBIC)
             healthy_patch.save(os.path.join(healthy_output_dir, healthy_id))
             print(f"Saved healthy patch for {healthy_id} corresponding to {image_id} at {os.path.join(healthy_output_dir, healthy_id)}")
         else:

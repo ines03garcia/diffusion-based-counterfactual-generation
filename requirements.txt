@@ -32,3 +32,5 @@ cvxopt
 # For the Mammo-CLIP
 imgaug
 xlrd
+# FID calculation
+pytorch-fid
