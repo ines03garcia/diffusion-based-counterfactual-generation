@@ -186,6 +186,7 @@ def create_test_argparser():
 
     vit_parser = subparsers.add_parser("vit")
     vit_parser.add_argument("--batch_size", type=int, default=16)
+    vit_parser.add_argument("--img-size", nargs='+', default=[1520, 912])
 
     mammo_clip_parser = subparsers.add_parser("mammo-clip")
     mammo_clip_parser.add_argument("--batch_size", type=int, default=8)
