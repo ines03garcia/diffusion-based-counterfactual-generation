@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="data/images/radiologist/radiologist_assessment_dataset",
+        default="data/images/radiologist_assessment_dataset_test",
         help="Output directory for selected images",
     )
     parser.add_argument(
@@ -47,6 +47,44 @@ def parse_args():
     )
     return parser.parse_args()
 
+EXCLUDED_CF_IDS = {
+    "2b76a18e45c8e62db919403c6c526ec4",
+    "3f41e1acc2be249bac2dc601633f7e99",
+    "4c3a8a7db202ea367baca51aa5b3b6d5",
+    "15ad456e4bc707e7ffeee20e60a3a820",
+    "17c9d5489c19c75ed3cb4032ba49afb7",
+    "19c0ecd06984b4d4b2c46812e85a06e6",
+    "63f4053da6b026f6b58b159fdf79b6ab",
+    "29fa27705317bd108ed3b927fdc4e3a0",
+    "64e88bc3716211bb2fc5dae3ca9e5b92",
+    "65cc9e7db32c047a5b13ed81767ac9fb",
+    "212bc03533346819d0c6d449d631f69f",
+    "09025dbf5abd08828ecd4ebf03724341",
+    "f56a57a109aed21840b83c8453e06a6e",
+    "2b76a18e45c8e62db919403c6c526ec4",
+    "4d96d394fe4b20778014bdde96b5d34e",
+    "15ad456e4bc707e7ffeee20e60a3a820",
+    "19c0ecd06984b4d4b2c46812e85a06e6",
+    "264d5e05c5774d9770eaf74c0483bd50",
+    "09025dbf5abd08828ecd4ebf03724341",
+    "15ad456e4bc707e7ffeee20e60a3a820",
+    "19c0ecd06984b4d4b2c46812e85a06e6",
+    "264d5e05c5774d9770eaf74c0483bd50",
+    "5303d45e31ed5f069964b4c47a0f1b55",
+    "6587b6ecbcf196b298b5898f7ad4763b",
+    "bc58e54ec75acfc3acfb248f409ff2f4",
+    "87811fa5ebde0c8e76add8f3b58f0d1c",
+    "aa02e8c5422114d20da11c573d0ee8ee",
+    "1cbc0ae5d67abccd58a4ba6d657d921e",
+    "f3f7753468997b03b3d8707edd9bef37",
+    "3fde15ab69283b96c1c24538427e7212",
+    "851af5bfe4d9b12c605998e1fe7355c3",
+    "870ec0cc5a1b1874d8c972a8595f41a2",
+    "dbe631b24f8759c7f7022513582c39ba"
+}
+
+def image_stem(image_id: str) -> str:
+    return Path(image_id).stem
 
 def find_image(image_dir: Path, image_id: str) -> Path:
     """
@@ -85,8 +123,14 @@ def main():
     with open(metadata_path, "r") as f:
         metadata = json.load(f)
 
-    cf_entries = [entry for entry in metadata if entry.get("has_cf") == 1]
-    healthy_entries = [entry for entry in metadata if entry.get("healthy") == 1]
+    cf_entries = [
+        entry
+        for entry in metadata
+        if entry.get("has_cf") == 1
+        and entry.get("split") == "test"
+        and image_stem(entry["image_id"]) not in EXCLUDED_CF_IDS
+    ]
+    healthy_entries = [entry for entry in metadata if entry.get("healthy") == 1 and entry.get("split") == "test"]
 
     if len(cf_entries) < 70:
         raise ValueError(f"Need 70 counterfactual entries, but found only {len(cf_entries)}")
