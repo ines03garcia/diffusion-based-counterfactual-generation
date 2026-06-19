@@ -119,7 +119,7 @@ def pair_probabilities(baseline_results, cf_results):
 	return image_ids, baseline_probs, cf_probs
 
 
-def run_wilcoxon(baseline_probs, cf_probs):
+def run_wilcoxon(baseline_probs, cf_probs, alternative="greater"):
 	differences = cf_probs - baseline_probs
 	nonzero_differences = differences[differences != 0.0]
 
@@ -127,20 +127,43 @@ def run_wilcoxon(baseline_probs, cf_probs):
 		return {
 			"statistic": 0.0,
 			"p_value": 1.0,
-			"alternative": "greater",
+			"alternative": alternative,
 			"note": "All paired differences are zero; Wilcoxon statistic is undefined, so p_value was set to 1.0.",
 		}
 
 	statistic, p_value = wilcoxon(
 		cf_probs,
 		baseline_probs,
-		alternative="greater",
+		alternative=alternative,
 		zero_method="wilcox",
 	)
 	return {
 		"statistic": float(statistic),
 		"p_value": float(p_value),
-		"alternative": "greater",
+		"alternative": alternative,
+	}
+
+
+def summarize_paired_comparison(baseline_probs, cf_probs, alternative="greater"):
+	if len(baseline_probs) == 0:
+		return {
+			"num_pairs": 0,
+			"wilcoxon": None,
+			"note": "No samples available for this subset.",
+		}
+
+	differences = cf_probs - baseline_probs
+	wilcoxon_result = run_wilcoxon(baseline_probs, cf_probs, alternative=alternative)
+	return {
+		"num_pairs": int(len(differences)),
+		"wilcoxon": wilcoxon_result,
+		"mean_baseline_probability": float(np.mean(baseline_probs)),
+		"mean_cf_probability": float(np.mean(cf_probs)),
+		"mean_difference": float(np.mean(differences)),
+		"median_difference": float(np.median(differences)),
+		"num_positive_differences": int(np.sum(differences > 0.0)),
+		"num_negative_differences": int(np.sum(differences < 0.0)),
+		"num_zero_differences": int(np.sum(differences == 0.0)),
 	}
 
 
@@ -214,8 +237,14 @@ def main():
 	)
 
 	image_ids, baseline_probs, cf_probs = pair_probabilities(baseline_results, cf_results)
+	targets = np.asarray([baseline_results[image_id]["target"] for image_id in image_ids], dtype=np.int32)
+	positive_mask = targets == 1
+	negative_mask = targets == 0
 	differences = cf_probs - baseline_probs
 	wilcoxon_result = run_wilcoxon(baseline_probs, cf_probs)
+	overall_summary = summarize_paired_comparison(baseline_probs, cf_probs)
+	positive_summary = summarize_paired_comparison(baseline_probs[positive_mask], cf_probs[positive_mask])
+	negative_summary = summarize_paired_comparison(baseline_probs[negative_mask], cf_probs[negative_mask])
 
 	result = {
 		"dataset": args.dataset,
@@ -235,6 +264,17 @@ def main():
 		"num_positive_differences": int(np.sum(differences > 0.0)),
 		"num_negative_differences": int(np.sum(differences < 0.0)),
 		"num_zero_differences": int(np.sum(differences == 0.0)),
+		"classwise_comparisons": {
+			"overall_true_class_probability": overall_summary,
+			"class_1_positive_cases": {
+				"description": "Positive test images only; probability is P(class 1), so this tests whether CF is better at assigning positives as positive.",
+				**positive_summary,
+			},
+			"class_0_negative_cases": {
+				"description": "Negative test images only; probability is P(class 0) = 1 - P(class 1), so this tests whether CF is better at assigning negatives as negative.",
+				**negative_summary,
+			},
+		},
 		"paired_probabilities": [
 			{
 				"image_id": image_id,
