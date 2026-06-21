@@ -102,3 +102,7 @@ class MammoClipInputAdapter(nn.Module):
 
     def forward(self, images):
         return self.base_model(self._prepare_inputs(images))
+    
+    def freeze_image_encoder(self):
+        """Freeze the full Mammo-CLIP image encoder for linear probing."""
+        return self.base_model.freeze_image_encoder()
