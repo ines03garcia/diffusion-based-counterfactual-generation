@@ -1,5 +1,4 @@
 import os
-
 import numpy as np
 import pandas as pd
 import torch
@@ -86,7 +85,7 @@ class Inbreast_dataset(Dataset):
             raise ValueError(f"Error loading image {img_path}: {e}")
 
         if self.transform:
-            image = self.transform(image)
+            image = self.transform(image=image)
 
         return image, torch.tensor(label, dtype=torch.float32), image_name
 
