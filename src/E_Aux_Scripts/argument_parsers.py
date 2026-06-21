@@ -62,7 +62,7 @@ def create_train_argparser():
 
     mammo_clip_parser = subparsers.add_parser('mammo-clip')
     mammo_clip_parser.add_argument('--batch_size', type=int, default=8)
-    mammo_clip_parser.add_argument('--epochs', type=int, default=30)
+    mammo_clip_parser.add_argument('--epochs', type=int, default=100)
     mammo_clip_parser.add_argument('--lr', type=float, default=5e-5)
     mammo_clip_parser.add_argument(
         "--clip_chk_pt_path",
@@ -87,7 +87,7 @@ def create_train_argparser():
     fpn_mil_parser = subparsers.add_parser('fpn-mil')
     fpn_mil_parser.add_argument('--n_class', type=int, default=1, help='Number of classes for classification (default: 1 for binary classification)')
     fpn_mil_parser.add_argument('--batch_size', type=int, default=8)
-    fpn_mil_parser.add_argument('--epochs', type=int, default=30)
+    fpn_mil_parser.add_argument('--epochs', type=int, default=100)
     fpn_mil_parser.add_argument('--lr', type=float, default=5e-5)
     fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
     fpn_mil_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
