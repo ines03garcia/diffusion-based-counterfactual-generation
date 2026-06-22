@@ -279,3 +279,31 @@ def create_significance_argparser():
     parser.add_argument("--seed", type=int, default=0, help="Random seed passed to ASO.")
     parser.add_argument("--output_path", type=str, default=None, help="Optional JSON file to save the comparison result.")
     return parser
+
+
+# ============================================================================
+# TEST WILCOXON P-VALUE PARSER
+# ============================================================================
+
+def create_wilcoxon_argparser():
+	parser = create_test_argparser()
+	parser.description = (
+		"Compare two classifier checkpoints with a paired Wilcoxon signed-rank "
+		"test over per-image true-class probabilities."
+	)
+	parser.add_argument(
+		"--baseline_checkpoint_path",
+		required=True,
+		help="Path to the baseline augmentation checkpoint. Relative paths are resolved under models/.",
+	)
+	parser.add_argument(
+		"--cf_checkpoint_path",
+		required=True,
+		help="Path to the counterfactual augmentation checkpoint. Relative paths are resolved under models/.",
+	)
+	parser.add_argument(
+		"--wilcoxon_output_path",
+		default=None,
+		help="Optional JSON file for the Wilcoxon comparison. Defaults to the logger output directory.",
+	)
+	return parser

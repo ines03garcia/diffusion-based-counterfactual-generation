@@ -16,7 +16,7 @@ METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
 IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
 
 from src.E_Aux_Scripts import logger
-from src.E_Aux_Scripts.argument_parsers import create_test_argparser
+from src.E_Aux_Scripts.argument_parsers import create_wilcoxon_argparser
 from src.E_Aux_Scripts.classifier_helpers import (
 	build_model,
 	create_transforms,
@@ -25,30 +25,6 @@ from src.E_Aux_Scripts.classifier_helpers import (
 	run_inference,
 )
 from src.E_Aux_Scripts.utils import seed_worker, set_seed
-
-
-def create_wilcoxon_argparser():
-	parser = create_test_argparser()
-	parser.description = (
-		"Compare two classifier checkpoints with a paired Wilcoxon signed-rank "
-		"test over per-image true-class probabilities."
-	)
-	parser.add_argument(
-		"--baseline_checkpoint_path",
-		required=True,
-		help="Path to the baseline augmentation checkpoint. Relative paths are resolved under models/.",
-	)
-	parser.add_argument(
-		"--cf_checkpoint_path",
-		required=True,
-		help="Path to the counterfactual augmentation checkpoint. Relative paths are resolved under models/.",
-	)
-	parser.add_argument(
-		"--wilcoxon_output_path",
-		default=None,
-		help="Optional JSON file for the Wilcoxon comparison. Defaults to the logger output directory.",
-	)
-	return parser
 
 
 def resolve_checkpoint_path(checkpoint_path):
