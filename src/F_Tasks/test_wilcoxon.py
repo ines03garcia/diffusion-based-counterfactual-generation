@@ -60,13 +60,13 @@ def resolve_checkpoint_path(checkpoint_path):
 def ensure_default_data_paths(args):
 	if args.data_dir is None:
 		if args.dataset == "vindr":
-			args.data_dir = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512")
+			args.data_dir = os.path.join(IMAGES_ROOT, "VinDrMammo-CLIP-CLAHE")
 		else:
 			args.data_dir = os.path.join(IMAGES_ROOT, "Inbreast_png")
 
 	if args.metadata_path is None:
 		if args.dataset == "vindr":
-			args.metadata_path = os.path.join(METADATA_ROOT, "resized_df_512.json")
+			args.metadata_path = os.path.join(METADATA_ROOT, "processed_df_birads.json")
 		else:
 			args.metadata_path = os.path.join(METADATA_ROOT, "inbreast_test_metadata.csv")
 
