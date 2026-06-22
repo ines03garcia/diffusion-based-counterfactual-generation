@@ -255,7 +255,14 @@ def main():
                 )
                 log.info(f"LOW scoring dataset prepared at seed level with {len(scoring_dataset)} samples for accumulation across all folds.")
             
-            for fold in range(folds):
+            if args.start_fold is not None:
+                start_fold = args.start_fold
+                if start_fold < 0 or start_fold >= folds:
+                    raise ValueError(f"Invalid --start_fold value: {start_fold}. Must be between 0 and {folds-1}.")
+            else:
+                start_fold = 0
+                
+            for fold in range(start_fold, folds):
                 fold_results_dir = results_dir
                 if args.cross_validation:
                     log.info(f"\n{'#'*15} Starting training for fold {fold} {'#'*15}")

@@ -31,6 +31,7 @@ def create_train_argparser():
     validation_mode_group = parser.add_mutually_exclusive_group()
     validation_mode_group.add_argument('--cross-validation', action='store_true', default=False, help='Whether to perform cross-validation')
     validation_mode_group.add_argument('--no_validation', action='store_true', default=False, help='Train for the specified number of epochs without validation split and without early stopping.')
+    parser.add_argument('--start_fold', type=int, default=None, help='Starting fold index for cross-validation (default: 0). If specified, training will resume from this fold.')
     parser.add_argument('--patience', type=int, default=15, help='Early stopping patience (number of epochs without improvement)')
     parser.add_argument('--use_differential_lr', action='store_true', default=True, help='Use different learning rates for backbone (lr*0.1) and classifier (lr)')
     parser.add_argument('--weight_decay', type=float, default=0.01, help='Weight decay for optimizer')
