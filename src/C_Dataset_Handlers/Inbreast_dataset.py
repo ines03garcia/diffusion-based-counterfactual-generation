@@ -5,6 +5,28 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+def _apply_transform(transform, image):
+    """Apply either a torchvision-style or Albumentations-style transform."""
+    if transform is None:
+        return image
+
+    rgb_image = image.convert("RGB")
+    try:
+        # Albumentations-style transform
+        result = transform(image=np.asarray(rgb_image))
+        image_out = result["image"] if isinstance(result, dict) else result
+
+        if isinstance(image_out, np.ndarray):
+            if image_out.ndim == 2:
+                image_out = image_out[:, :, None]
+            return torch.from_numpy(image_out).permute(2, 0, 1).float().div(255.0)
+
+        return image_out
+
+    except TypeError:
+        # torchvision-style transform
+        return transform(rgb_image)
+
 
 class Inbreast_dataset(Dataset):
     def __init__(self, data_dir, metadata_path, transform=None, split="test"):
@@ -80,12 +102,11 @@ class Inbreast_dataset(Dataset):
         image_name = self.image_names[idx]
 
         try:
-            image = Image.open(img_path).convert("RGB")
+            image = Image.open(img_path).convert("L")
         except Exception as e:
             raise ValueError(f"Error loading image {img_path}: {e}")
 
-        if self.transform:
-            image = self.transform(image=image)
+        image = _apply_transform(self.transform, image)
 
         return image, torch.tensor(label, dtype=torch.float32), image_name
 

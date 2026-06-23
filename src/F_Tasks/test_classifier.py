@@ -139,7 +139,7 @@ def main():
 		if args.dataset == "vindr":
 			args.data_dir = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512")
 		else:
-			args.data_dir = os.path.join(IMAGES_ROOT, "Inbreast_png")
+			args.data_dir = os.path.join(IMAGES_ROOT, "datasets/Inbreast_png")
 
 	if args.metadata_path is None:
 		if args.dataset == "vindr":
