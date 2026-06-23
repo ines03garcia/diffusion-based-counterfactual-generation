@@ -5,12 +5,39 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+
+def _resize_preserve_aspect(image, target_size=(912, 1520), fill=(0, 0, 0)):
+    """
+    Resize image to fit within target_size while preserving aspect ratio,
+    then pad to exactly target_size.
+
+    target_size is (width, height).
+    """
+    target_w, target_h = target_size
+    src_w, src_h = image.size
+
+    scale = min(target_w / src_w, target_h / src_h)
+    new_w = int(round(src_w * scale))
+    new_h = int(round(src_h * scale))
+
+    resized = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    canvas = Image.new("RGB", (target_w, target_h), fill)
+    offset_x = (target_w - new_w) // 2
+    offset_y = (target_h - new_h) // 2
+    canvas.paste(resized, (offset_x, offset_y))
+
+    return canvas
+
+
 def _apply_transform(transform, image):
     """Apply either a torchvision-style or Albumentations-style transform."""
     if transform is None:
-        return image
+        return _resize_preserve_aspect(image.convert("RGB"))
 
     rgb_image = image.convert("RGB")
+    rgb_image = _resize_preserve_aspect(rgb_image, target_size=(912, 1520))
+
     try:
         # Albumentations-style transform
         result = transform(image=np.asarray(rgb_image))
