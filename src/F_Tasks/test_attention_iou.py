@@ -176,29 +176,73 @@ def compute_max_box_iou(pred_box, gt_boxes):
     return max(compute_box_iou(pred_box, gt_box) for gt_box in gt_boxes)
 
 
-def largest_connected_component_bbox(mask):
+def compute_matched_box_iou(pred_boxes, gt_boxes):
+    if not pred_boxes or not gt_boxes:
+        return 0.0
+
+    iou_matrix = np.array(
+        [[compute_box_iou(pred_box, gt_box) for pred_box in pred_boxes] for gt_box in gt_boxes],
+        dtype=np.float32,
+    )
+
+    try:
+        from scipy.optimize import linear_sum_assignment
+
+        gt_indices, pred_indices = linear_sum_assignment(-iou_matrix)
+        matched_iou = iou_matrix[gt_indices, pred_indices].sum()
+    except Exception:
+        matched_iou = 0.0
+        used_preds = set()
+        for gt_idx in range(iou_matrix.shape[0]):
+            best_pred = None
+            best_iou = 0.0
+            for pred_idx in range(iou_matrix.shape[1]):
+                if pred_idx in used_preds:
+                    continue
+                if iou_matrix[gt_idx, pred_idx] > best_iou:
+                    best_iou = float(iou_matrix[gt_idx, pred_idx])
+                    best_pred = pred_idx
+            if best_pred is not None:
+                used_preds.add(best_pred)
+                matched_iou += best_iou
+
+    return float(matched_iou / len(gt_boxes))
+
+
+def top_connected_component_bboxes(mask, cam, max_boxes):
     if not np.any(mask):
-        return None
+        return []
 
     from scipy import ndimage
 
     label_im, num_labels = ndimage.label(mask)
     if num_labels == 0:
-        return None
+        return []
 
-    sizes = ndimage.sum(mask, label_im, range(1, num_labels + 1))
-    largest_label = int(np.argmax(sizes)) + 1
-    ys, xs = np.where(label_im == largest_label)
-
-    if len(xs) == 0 or len(ys) == 0:
-        return None
-
-    return (
-        int(xs.min()),
-        int(ys.min()),
-        int(xs.max() + 1),
-        int(ys.max() + 1),
+    component_scores = ndimage.sum(cam, label_im, range(1, num_labels + 1))
+    component_areas = ndimage.sum(mask, label_im, range(1, num_labels + 1))
+    ranked_labels = sorted(
+        range(1, num_labels + 1),
+        key=lambda label: (component_scores[label - 1], component_areas[label - 1]),
+        reverse=True,
     )
+
+    boxes = []
+    for label in ranked_labels[:max_boxes]:
+        ys, xs = np.where(label_im == label)
+        if len(xs) == 0 or len(ys) == 0:
+            continue
+
+        boxes.append(
+            (
+                int(xs.min()),
+                int(ys.min()),
+                int(xs.max() + 1),
+                int(ys.max() + 1),
+            )
+        )
+
+    return boxes
 
 
 def binarize_cam_maps(cam_maps, quantile):
@@ -266,14 +310,18 @@ def make_case_visualization(case):
     draw = ImageDraw.Draw(canvas)
 
     for x1, y1, x2, y2 in boxes:
-        draw.rectangle((x1, y1, x2, y2), outline=(0, 255, 0), width=4)
+        draw.rectangle((x1, y1, x2, y2), outline=(255, 0, 0), width=4)
 
-    if case["method"] == "boundingbox" and case.get("pred_box") is not None:
-        x1, y1, x2, y2 = case["pred_box"]
-        draw.rectangle((x1, y1, x2, y2), outline=(255, 255, 0), width=4)
+    pred_boxes = case.get("pred_boxes")
+    if pred_boxes is None and case.get("pred_box") is not None:
+        pred_boxes = [case["pred_box"]]
+
+    if case["method"] == "boundingbox" and pred_boxes:
+        for x1, y1, x2, y2 in pred_boxes:
+            draw.rectangle((x1, y1, x2, y2), outline=(0, 255, 0), width=4)
     else:
-        draw_mask_edges(draw, cam_mask, (255, 255, 0))
-        draw_mask_edges(draw, roi_mask, (0, 255, 0))
+        draw_mask_edges(draw, cam_mask, (0, 255, 0))
+        draw_mask_edges(draw, roi_mask, (255, 0, 0))
 
     caption_lines = [
         f"image_id: {case['image_id']}",
@@ -462,21 +510,26 @@ def main():
                 images.device,
             )
 
-            pred_box = None
+            pred_boxes = []
             if args.method == "pixel":
                 iou = compute_iou(cam_masks[i], roi_mask)
             else:
-                pred_box = largest_connected_component_bbox(
-                    cam_masks[i].detach().cpu().numpy().astype(bool)
+                pred_boxes = top_connected_component_bboxes(
+                    cam_masks[i].detach().cpu().numpy().astype(bool),
+                    cam_maps[i].detach().cpu().numpy(),
+                    max_boxes=len(boxes),
                 )
-                iou = compute_max_box_iou(pred_box, boxes)
+                iou = compute_matched_box_iou(pred_boxes, boxes)
 
+            pred_box = pred_boxes[0] if pred_boxes else None
             result = {
                 "image_id": image_id,
                 "target": int(targets[i]),
                 "num_boxes": len(boxes),
+                "num_pred_boxes": len(pred_boxes),
                 "method": args.method,
                 "pred_box": list(pred_box) if pred_box is not None else None,
+                "pred_boxes": [list(box) for box in pred_boxes],
                 "iou": iou,
             }
             results.append(result)
@@ -490,6 +543,7 @@ def main():
                         "num_boxes": len(boxes),
                         "method": args.method,
                         "pred_box": pred_box,
+                        "pred_boxes": pred_boxes,
                         "iou": iou,
                         "boxes": boxes,
                         "image": denormalize_image(images[i], args),
