@@ -155,6 +155,52 @@ def compute_iou(pred_mask, roi_mask):
     return float(inter / union) if union > 0 else None
 
 
+def compute_box_iou(box_a, box_b):
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+
+    inter_w = max(0, min(ax2, bx2) - max(ax1, bx1))
+    inter_h = max(0, min(ay2, by2) - max(ay1, by1))
+    inter = inter_w * inter_h
+
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    union = area_a + area_b - inter
+
+    return float(inter / union) if union > 0 else 0.0
+
+
+def compute_max_box_iou(pred_box, gt_boxes):
+    if pred_box is None or not gt_boxes:
+        return 0.0
+    return max(compute_box_iou(pred_box, gt_box) for gt_box in gt_boxes)
+
+
+def largest_connected_component_bbox(mask):
+    if not np.any(mask):
+        return None
+
+    from scipy import ndimage
+
+    label_im, num_labels = ndimage.label(mask)
+    if num_labels == 0:
+        return None
+
+    sizes = ndimage.sum(mask, label_im, range(1, num_labels + 1))
+    largest_label = int(np.argmax(sizes)) + 1
+    ys, xs = np.where(label_im == largest_label)
+
+    if len(xs) == 0 or len(ys) == 0:
+        return None
+
+    return (
+        int(xs.min()),
+        int(ys.min()),
+        int(xs.max() + 1),
+        int(ys.max() + 1),
+    )
+
+
 def binarize_cam_maps(cam_maps, quantile):
     flat = cam_maps.flatten(1)
     thr = torch.quantile(flat, quantile, dim=1).view(-1, 1, 1)
@@ -222,11 +268,16 @@ def make_case_visualization(case):
     for x1, y1, x2, y2 in boxes:
         draw.rectangle((x1, y1, x2, y2), outline=(0, 255, 0), width=4)
 
-    draw_mask_edges(draw, cam_mask, (255, 255, 0))
-    draw_mask_edges(draw, roi_mask, (0, 255, 0))
+    if case["method"] == "boundingbox" and case.get("pred_box") is not None:
+        x1, y1, x2, y2 = case["pred_box"]
+        draw.rectangle((x1, y1, x2, y2), outline=(255, 255, 0), width=4)
+    else:
+        draw_mask_edges(draw, cam_mask, (255, 255, 0))
+        draw_mask_edges(draw, roi_mask, (0, 255, 0))
 
     caption_lines = [
         f"image_id: {case['image_id']}",
+        f"method: {case['method']}",
         f"IoU (%): {case['iou'] * 100:.2f}",
     ]
     font_size = max(18, int(canvas.height * 0.022))
@@ -307,6 +358,7 @@ def resolve_output_paths(args):
 def main():
     parser = create_test_argparser()
     parser.add_argument("--cam_quantile", type=float, default=0.8)
+    parser.add_argument("--method", type=str, choices=["pixel", "boundingbox"], default="pixel")
     parser.add_argument("--log_dir", type=str, default=None)
     parser.add_argument("--iou_output", type=str, default=None)
     parser.add_argument("--num_visualizations", type=int, default=3)
@@ -410,12 +462,21 @@ def main():
                 images.device,
             )
 
-            iou = compute_iou(cam_masks[i], roi_mask)
+            pred_box = None
+            if args.method == "pixel":
+                iou = compute_iou(cam_masks[i], roi_mask)
+            else:
+                pred_box = largest_connected_component_bbox(
+                    cam_masks[i].detach().cpu().numpy().astype(bool)
+                )
+                iou = compute_max_box_iou(pred_box, boxes)
 
             result = {
                 "image_id": image_id,
                 "target": int(targets[i]),
                 "num_boxes": len(boxes),
+                "method": args.method,
+                "pred_box": list(pred_box) if pred_box is not None else None,
                 "iou": iou,
             }
             results.append(result)
@@ -427,6 +488,8 @@ def main():
                         "image_id": image_id,
                         "target": int(targets[i]),
                         "num_boxes": len(boxes),
+                        "method": args.method,
+                        "pred_box": pred_box,
                         "iou": iou,
                         "boxes": boxes,
                         "image": denormalize_image(images[i], args),
@@ -445,6 +508,7 @@ def main():
         "dataset": args.dataset,
         "model_type": args.model_type,
         "cam_quantile": args.cam_quantile,
+        "method": args.method,
         "log_dir": log_dir,
         "iou_output": iou_output,
         "summary_output": os.path.join(log_dir, "summary.txt"),
@@ -470,6 +534,7 @@ def main():
         f.write(f"Checkpoint: {ckpt}\n")
         f.write(f"Dataset: {args.dataset}\n")
         f.write(f"Model type: {args.model_type}\n")
+        f.write(f"Method: {args.method}\n")
         f.write(f"CAM quantile: {args.cam_quantile}\n")
         f.write(f"Dataset images before ROI filter: {roi_filter_stats['dataset_images_before_roi_filter']}\n")
         f.write(f"Dataset images after ROI filter: {roi_filter_stats['dataset_images_after_roi_filter']}\n")
