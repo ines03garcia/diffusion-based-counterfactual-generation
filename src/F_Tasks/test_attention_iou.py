@@ -320,8 +320,8 @@ def make_case_visualization(case):
         for x1, y1, x2, y2 in pred_boxes:
             draw.rectangle((x1, y1, x2, y2), outline=(0, 255, 0), width=4)
     else:
-        draw_mask_edges(draw, cam_mask, (0, 255, 0))
-        draw_mask_edges(draw, roi_mask, (255, 0, 0))
+        draw_mask_edges(draw, cam_mask, (255, 0, 0))
+        draw_mask_edges(draw, roi_mask, (0, 255, 0))
 
     caption_lines = [
         f"image_id: {case['image_id']}",
@@ -360,6 +360,20 @@ def update_best_cases(best_cases, case, max_cases):
     del best_cases[max_cases:]
 
 
+def make_visualization_filename(case, prefix=None):
+    filename = f"{sanitize_filename(case['image_id'])}_iou_{case['iou']:.4f}.png"
+    if prefix is not None:
+        filename = f"{prefix}_{filename}"
+    return filename
+
+
+def save_case_visualization(case, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, make_visualization_filename(case))
+    make_case_visualization(case).save(path)
+    return path
+
+
 def save_best_visualizations(best_cases, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     saved_paths = []
@@ -367,8 +381,7 @@ def save_best_visualizations(best_cases, output_dir):
 
     for rank, case in enumerate(best_cases, start=1):
         panel = make_case_visualization(case)
-        filename = f"rank_{rank}_{sanitize_filename(case['image_id'])}_iou_{case['iou']:.4f}.png"
-        path = os.path.join(output_dir, filename)
+        path = os.path.join(output_dir, make_visualization_filename(case, prefix=f"rank_{rank}"))
         panel.save(path)
         saved_paths.append(path)
         panels.append(panel)
@@ -384,7 +397,7 @@ def save_best_visualizations(best_cases, output_dir):
             grid.paste(panel, (x_offset, 0))
             x_offset += panel.width + gap
 
-        grid_path = os.path.join(output_dir, "best_3_cases.png")
+        grid_path = os.path.join(output_dir, f"best_{len(panels)}_cases.png")
         grid.save(grid_path)
         saved_paths.append(grid_path)
 
@@ -471,6 +484,7 @@ def main():
 
     results = []
     best_cases = []
+    all_visualization_paths = []
     log_dir, iou_output, vis_dir = resolve_output_paths(args)
     batches_processed = 0
     images_seen = 0
@@ -535,27 +549,29 @@ def main():
             results.append(result)
 
             if iou is not None:
-                update_best_cases(
-                    best_cases,
-                    {
-                        "image_id": image_id,
-                        "target": int(targets[i]),
-                        "num_boxes": len(boxes),
-                        "method": args.method,
-                        "pred_box": pred_box,
-                        "pred_boxes": pred_boxes,
-                        "iou": iou,
-                        "boxes": boxes,
-                        "image": denormalize_image(images[i], args),
-                        "cam": cam_maps[i].detach().cpu().numpy(),
-                        "cam_mask": cam_masks[i].detach().cpu().numpy().astype(bool),
-                        "roi_mask": roi_mask.detach().cpu().numpy().astype(bool),
-                    },
-                    args.num_visualizations,
-                )
+                case = {
+                    "image_id": image_id,
+                    "target": int(targets[i]),
+                    "num_boxes": len(boxes),
+                    "method": args.method,
+                    "pred_box": pred_box,
+                    "pred_boxes": pred_boxes,
+                    "iou": iou,
+                    "boxes": boxes,
+                    "image": denormalize_image(images[i], args),
+                    "cam": cam_maps[i].detach().cpu().numpy(),
+                    "cam_mask": cam_masks[i].detach().cpu().numpy().astype(bool),
+                    "roi_mask": roi_mask.detach().cpu().numpy().astype(bool),
+                }
+                visualization_path = save_case_visualization(case, vis_dir)
+                all_visualization_paths.append(visualization_path)
+                result["visualization"] = visualization_path
+                update_best_cases(best_cases, case, args.num_visualizations)
 
     valid_ious = [r["iou"] for r in results if r["iou"] is not None]
-    visualization_paths = save_best_visualizations(best_cases, vis_dir)
+    top_visualization_dir = os.path.join(vis_dir, f"top_{args.num_visualizations}")
+    top_visualization_paths = save_best_visualizations(best_cases, top_visualization_dir)
+    visualization_paths = all_visualization_paths + top_visualization_paths
 
     output = {
         "checkpoint": ckpt,
@@ -567,6 +583,9 @@ def main():
         "iou_output": iou_output,
         "summary_output": os.path.join(log_dir, "summary.txt"),
         "visualization_dir": vis_dir,
+        "all_visualizations": all_visualization_paths,
+        "top_visualization_dir": top_visualization_dir,
+        "top_visualizations": top_visualization_paths,
         "visualizations": visualization_paths,
         **roi_filter_stats,
         "max_batches": args.max_batches,
@@ -604,6 +623,7 @@ def main():
         f.write(f"Std IoU: {output['std_iou']}\n")
         f.write(f"JSON output: {iou_output}\n")
         f.write(f"Visualization dir: {vis_dir}\n")
+        f.write(f"Top visualization dir: {top_visualization_dir}\n")
         for rank, case in enumerate(best_cases, start=1):
             f.write(f"Rank {rank}: {case['image_id']} IoU={case['iou']:.6f}\n")
 
