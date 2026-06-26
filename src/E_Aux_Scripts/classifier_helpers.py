@@ -6,7 +6,7 @@ import math
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 from torch.optim.lr_scheduler import LambdaLR
 import logging
 from torch.amp import autocast
@@ -434,22 +434,80 @@ def train_epoch(
 
     return epoch_loss, epoch_acc, epoch_f1
 
-def cache_model_features(model, dataloader, device, batch_size, shuffle=False, seed=None):
-    """Run a frozen feature extractor once and return a loader over cached embeddings."""
-    model.eval()
-    feature_batches = []
-    label_batches = []
+class CachedFeatureDataset(Dataset):
+    """Dataset backed by precomputed image features and labels."""
 
-    with torch.no_grad():
-        for images, labels, _ in tqdm(dataloader, desc="Caching features"):
-            images = images.to(device, non_blocking=True)
-            features = model.encode_features(images)
-            feature_batches.append(features.detach().float().cpu())
-            label_batches.append(labels.detach().cpu())
+    def __init__(self, features, labels):
+        self.features = features
+        self.labels = labels
 
-    features = torch.cat(feature_batches, dim=0)
-    labels = torch.cat(label_batches, dim=0)
-    dataset = TensorDataset(features, labels)
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, index):
+        return _index_feature(self.features, index), self.labels[index]
+
+
+def _feature_to_cpu(feature):
+    if torch.is_tensor(feature):
+        return feature.detach().float().cpu()
+    if isinstance(feature, dict):
+        return feature.__class__((key, _feature_to_cpu(value)) for key, value in feature.items())
+    if isinstance(feature, list):
+        return [_feature_to_cpu(value) for value in feature]
+    if isinstance(feature, tuple):
+        return tuple(_feature_to_cpu(value) for value in feature)
+    raise TypeError(f"Unsupported feature type for caching: {type(feature)}")
+
+
+def _feature_to_device(feature, device):
+    if torch.is_tensor(feature):
+        return feature.to(device, non_blocking=True)
+    if isinstance(feature, dict):
+        return feature.__class__((key, _feature_to_device(value, device)) for key, value in feature.items())
+    if isinstance(feature, list):
+        return [_feature_to_device(value, device) for value in feature]
+    if isinstance(feature, tuple):
+        return tuple(_feature_to_device(value, device) for value in feature)
+    raise TypeError(f"Unsupported feature type for device transfer: {type(feature)}")
+
+
+def _concat_feature_batches(feature_batches):
+    first = feature_batches[0]
+    if torch.is_tensor(first):
+        return torch.cat(feature_batches, dim=0)
+    if isinstance(first, dict):
+        return first.__class__(
+            (key, _concat_feature_batches([batch[key] for batch in feature_batches]))
+            for key in first.keys()
+        )
+    if isinstance(first, list):
+        return [
+            _concat_feature_batches([batch[index] for batch in feature_batches])
+            for index in range(len(first))
+        ]
+    if isinstance(first, tuple):
+        return tuple(
+            _concat_feature_batches([batch[index] for batch in feature_batches])
+            for index in range(len(first))
+        )
+    raise TypeError(f"Unsupported feature type for concatenation: {type(first)}")
+
+
+def _index_feature(feature, index):
+    if torch.is_tensor(feature):
+        return feature[index]
+    if isinstance(feature, dict):
+        return feature.__class__((key, _index_feature(value, index)) for key, value in feature.items())
+    if isinstance(feature, list):
+        return [_index_feature(value, index) for value in feature]
+    if isinstance(feature, tuple):
+        return tuple(_index_feature(value, index) for value in feature)
+    raise TypeError(f"Unsupported feature type for indexing: {type(feature)}")
+
+
+def _cached_feature_loader(features, labels, batch_size, shuffle=False, seed=None):
+    dataset = CachedFeatureDataset(features, labels)
     generator = None
     if seed is not None:
         generator = torch.Generator().manual_seed(seed)
@@ -461,6 +519,75 @@ def cache_model_features(model, dataloader, device, batch_size, shuffle=False, s
         pin_memory=True,
         generator=generator,
     )
+
+
+def _save_feature_cache(cache_path, features, labels, image_ids, metadata=None):
+    cache_dir = os.path.dirname(cache_path)
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+
+    torch.save(
+        {
+            'features': features,
+            'labels': labels,
+            'image_ids': image_ids,
+            'metadata': metadata or {},
+        },
+        cache_path,
+    )
+
+
+def _load_feature_cache(cache_path):
+    if not cache_path:
+        raise ValueError("A feature cache path is required for offline feature extraction.")
+    if not os.path.exists(cache_path):
+        raise FileNotFoundError(f"Feature cache not found: {cache_path}")
+
+    cache = torch.load(cache_path, map_location='cpu', weights_only=False)
+    if not isinstance(cache, dict) or 'features' not in cache or 'labels' not in cache:
+        raise ValueError(f"Invalid feature cache format: {cache_path}")
+    return cache
+
+
+def cache_model_features(
+    model,
+    dataloader,
+    device,
+    batch_size,
+    shuffle=False,
+    seed=None,
+    cache_path=None,
+    save_cache=False,
+    load_cache=False,
+    metadata=None,
+):
+    """Return a loader over cached features, optionally loading/saving them on disk."""
+    if load_cache:
+        cache = _load_feature_cache(cache_path)
+        features = cache['features']
+        labels = cache['labels']
+        return _cached_feature_loader(features, labels, batch_size, shuffle=shuffle, seed=seed)
+
+    model.eval()
+    feature_batches = []
+    label_batches = []
+    image_ids = []
+
+    with torch.no_grad():
+        for images, labels, batch_image_ids in tqdm(dataloader, desc="Caching features"):
+            images = images.to(device, non_blocking=True)
+            features = model.encode_features(images)
+            feature_batches.append(_feature_to_cpu(features))
+            label_batches.append(labels.detach().cpu())
+            image_ids.extend([str(image_id) for image_id in batch_image_ids])
+
+    features = _concat_feature_batches(feature_batches)
+    labels = torch.cat(label_batches, dim=0)
+
+    if save_cache:
+        _save_feature_cache(cache_path, features, labels, image_ids, metadata=metadata)
+
+    return _cached_feature_loader(features, labels, batch_size, shuffle=shuffle, seed=seed)
 
 
 def train_cached_feature_epoch(
@@ -478,16 +605,20 @@ def train_cached_feature_epoch(
     predictions = []
     targets = []
     amp_enabled = device.type == "cuda"
+    uses_low_loss = _uses_low_loss(criterion)
 
     for features, labels in tqdm(dataloader, desc="Training cached features"):
-        features = features.to(device, non_blocking=True)
+        features = _feature_to_device(features, device)
         labels = labels.to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
 
         with autocast("cuda", enabled=amp_enabled):
             outputs = model.classify_features(features)
-            labels_for_loss = _prepare_binary_targets(labels, outputs)
+            if uses_low_loss:
+                labels_for_loss = labels.long()
+            else:
+                labels_for_loss = _prepare_binary_targets(labels, outputs)
             loss = criterion(outputs, labels_for_loss)
 
         scaler.scale(loss).backward()
@@ -502,9 +633,14 @@ def train_cached_feature_epoch(
         running_loss += loss.detach().float().item()
 
         with torch.no_grad():
-            preds = (torch.sigmoid(outputs.float()) > 0.5).float()
+            if uses_low_loss:
+                preds = torch.argmax(outputs, dim=1).float()
+                metric_labels = labels.long()
+            else:
+                preds = (torch.sigmoid(outputs.float()) > 0.5).float()
+                metric_labels = labels.float()
             predictions.append(preds.detach().cpu())
-            targets.append(labels.float().detach().cpu())
+            targets.append(metric_labels.detach().cpu())
 
     predictions = torch.cat(predictions).numpy()
     targets = torch.cat(targets).numpy()
@@ -522,18 +658,28 @@ def validate_cached_feature_epoch(model, dataloader, criterion, device):
     predictions = []
     targets = []
 
+    uses_low_loss = _uses_low_loss(criterion)
+
     with torch.no_grad():
         for features, labels in tqdm(dataloader, desc="Validation cached features"):
-            features = features.to(device, non_blocking=True)
+            features = _feature_to_device(features, device)
             labels = labels.to(device, non_blocking=True)
             outputs = model.classify_features(features)
-            labels_for_loss = _prepare_binary_targets(labels, outputs)
+            if uses_low_loss:
+                labels_for_loss = labels.long()
+            else:
+                labels_for_loss = _prepare_binary_targets(labels, outputs)
             loss = criterion(outputs, labels_for_loss)
 
             running_loss += loss.detach().float().item()
-            preds = (torch.sigmoid(outputs.float()) > 0.5).float()
+            if uses_low_loss:
+                preds = torch.argmax(outputs, dim=1).float()
+                metric_labels = labels.long()
+            else:
+                preds = (torch.sigmoid(outputs.float()) > 0.5).float()
+                metric_labels = labels.float()
             predictions.extend(preds.cpu().numpy())
-            targets.extend(labels.float().cpu().numpy())
+            targets.extend(metric_labels.cpu().numpy())
 
     epoch_loss = running_loss / len(dataloader)
     f1 = f1_score(targets, predictions, average="weighted", zero_division=0)

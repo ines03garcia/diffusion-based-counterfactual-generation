@@ -77,7 +77,30 @@ class FeaturePyramidNetwork(nn.Module):
             # Extract online feature maps from the backbone 
             selected_fmaps = self.backbone(x)
         else: # offline pre-extracted feature maps 
-            selected_fmaps = x 
+            selected_fmaps = x
+
+        # The intermediate feature maps need to be ordered by their channel dimensions to match the expected input of the FPN layers.
+        selected_fmaps = list(selected_fmaps.values()) if isinstance(selected_fmaps, dict) else list(selected_fmaps)
+        expected_channels = [
+            block[0].in_channels
+            for _, block in sorted(self.inner_blocks.items(), key=lambda item: item[0])
+        ]
+        if len(selected_fmaps) != len(expected_channels):
+            matched_fmaps = []
+            search_start = 0
+            for channels in expected_channels:
+                match_index = next(
+                    (idx for idx in range(search_start, len(selected_fmaps)) if selected_fmaps[idx].shape[1] == channels),
+                    None,
+                )
+                if match_index is None:
+                    raise ValueError(
+                        f"Could not find FPN feature map with {channels} channels. "
+                        f"Available channels: {[fmap.shape[1] for fmap in selected_fmaps]}"
+                    )
+                matched_fmaps.append(selected_fmaps[match_index])
+                search_start = match_index + 1
+            selected_fmaps = matched_fmaps
         
         # Initialize the last inner feature map from the top feature map
         last_inner = self.inner_blocks[f"inner_block_{len(selected_fmaps) - 1}"](selected_fmaps[-1])

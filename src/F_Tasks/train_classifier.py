@@ -194,7 +194,7 @@ def main():
         base_setup = build_base_setup(args)
         
         # Create the main logger once for the entire run
-        log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", model_type=args.model_type, setup=base_setup)
+        log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="train", label=args.label, model_type=args.model_type, setup=base_setup)
         log.configure_root_logger()
         log.info(f"Logs will be saved to: {log.output_dir}")
         
@@ -326,10 +326,22 @@ def main():
                 #if device.type == 'cuda' and torch.cuda.device_count() > 1:
                     #model = nn.DataParallel(model)
                     #log.info(f"Enabled DataParallel across {torch.cuda.device_count()} CUDA devices")
+
+                feature_extraction_mode = getattr(args, "feature_extraction", None)
+                use_cached_features = (
+                    args.model_type in ["mammo-clip", "fpn-mil"]
+                    and feature_extraction_mode in ["online", "offline", "both"]
+                )
                 
                 # Freeze image encoder blocks
                 if args.model_type == "mammo-clip" or args.model_type == "fpn-mil":
-                    if args.arch.lower().endswith("_lp"):
+                    if use_cached_features:
+                        log.info(
+                            "Cached feature extraction selected; image encoder is frozen "
+                            "and the remaining model layers are trained from cached features."
+                        )
+                        unwrap_model(model).freeze_image_encoder()
+                    elif args.arch.lower().endswith("_lp"):
                         log.info("Linear probing selected via arch; image encoder remains frozen.")
                         unwrap_model(model).freeze_image_encoder()
                     else:
@@ -355,15 +367,25 @@ def main():
                     criterion = LOWLoss(lamb=0.1).to(device)
                 log.debug("Loss function created")
 
-                use_cached_mammo_clip_features = (
-                    args.model_type == "mammo-clip"
-                    and args.arch.lower().endswith("_lp")
-                    and args.loss == "bce"
-                    and not args.add_cf_batch
-                    and not args.use_mixup
-                )
+                if use_cached_features and args.add_cf_batch:
+                    raise ValueError("--add_cf_batch is not supported with cached feature extraction. Use --use_counterfactuals to include counterfactuals in the cached dataset.")
+                if use_cached_features and args.use_mixup:
+                    raise ValueError("--use_mixup is not supported with cached feature extraction because MixUp is applied dynamically per batch.")
+
                 train_epoch_loader = train_loader
                 val_epoch_loader = val_loader if not args.no_validation else None
+
+                def resolve_feature_cache_path(split):
+                    root = args.feature_cache_path or os.path.join(fold_results_dir, "feature_cache")
+                    extension = os.path.splitext(root)[1].lower()
+                    if extension in [".pth", ".pt"]:
+                        if split == "train":
+                            return root
+                        stem, ext = os.path.splitext(root)
+                        return f"{stem}_{split}{ext}"
+                    if args.cross_validation and args.feature_cache_path:
+                        root = os.path.join(root, f"fold_{fold}")
+                    return os.path.join(root, f"{split}_features.pth")
 
                 # Learning rate scheduler: Linear warmup + cosine annealing (upstream)
                 # Determine warmup steps (expressed in optimizer steps / batches)
@@ -392,16 +414,21 @@ def main():
                         checkpoint_path, model, optimizer, device
                     )
 
-                if use_cached_mammo_clip_features:
+                if use_cached_features:
+                    load_cache = feature_extraction_mode == "offline"
+                    save_cache = feature_extraction_mode == "both"
                     log.info(
-                        "Caching Mammo-CLIP image features for linear probing; "
-                        "subsequent epochs will train only the classifier head."
+                        f"Using {args.model_type} feature extraction mode [{feature_extraction_mode}]. "
+                        "Cached features will be used while training the remaining model layers."
                     )
-                    if args.augmentation_type != "none":
+                    if feature_extraction_mode in ["online", "both"] and args.augmentation_type != "none":
                         log.info(
                             "Training features are cached after one pass through the configured "
                             "training transform, so stochastic augmentations will not be resampled each epoch."
                         )
+
+                    train_cache_path = resolve_feature_cache_path("train")
+                    log.info(f"Train feature cache path: {train_cache_path}")
                     train_epoch_loader = cache_model_features(
                         model,
                         train_loader,
@@ -409,14 +436,24 @@ def main():
                         batch_size=args.batch_size,
                         shuffle=True,
                         seed=seed,
+                        cache_path=train_cache_path,
+                        save_cache=save_cache,
+                        load_cache=load_cache,
+                        metadata={"split": "train", "model_type": args.model_type, "fold": fold if args.cross_validation else None},
                     )
                     if not args.no_validation:
+                        val_cache_path = resolve_feature_cache_path("val")
+                        log.info(f"Validation feature cache path: {val_cache_path}")
                         val_epoch_loader = cache_model_features(
                             model,
                             val_loader,
                             device,
                             batch_size=args.batch_size,
                             shuffle=False,
+                            cache_path=val_cache_path,
+                            save_cache=save_cache,
+                            load_cache=load_cache,
+                            metadata={"split": "val", "model_type": args.model_type, "fold": fold if args.cross_validation else None},
                         )
 
                 if not args.no_validation:
@@ -451,7 +488,7 @@ def main():
                         #unwrap_model(model).unfreeze_layers(epoch, args.epochs)
 
                     # Train
-                    if use_cached_mammo_clip_features:
+                    if use_cached_features:
                         train_loss, train_acc, train_f1 = train_cached_feature_epoch(
                             model, train_epoch_loader, criterion, optimizer, device, scaler,
                             scheduler=scheduler,
@@ -469,7 +506,7 @@ def main():
                     
                     if not args.no_validation:
                         # Validate
-                        if use_cached_mammo_clip_features:
+                        if use_cached_features:
                             val_loss, val_f1, val_preds, val_targets = validate_cached_feature_epoch(
                                 model, val_epoch_loader, criterion, device
                             )

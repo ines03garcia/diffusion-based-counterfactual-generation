@@ -15,20 +15,85 @@ class FpnMilInputAdapter(nn.Module):
         self.base_model = base_model
 
     def _prepare_inputs(self, images):
-        # Generic classifier dataloaders provide BCHW. FPN-MIL expects BxNCHW.
+        # FPN-MIL expects BNCHW. Some albumentations paths produce BHWC.
         if images.dim() == 4:
+            if images.shape[-1] == 3 and images.shape[1] != 3:
+                images = images.permute(0, 3, 1, 2).contiguous()
             return images.unsqueeze(1)
         if images.dim() == 5:
+            if images.shape[-1] == 3 and images.shape[2] != 3:
+                images = images.permute(0, 1, 4, 2, 3).contiguous()
             return images
         raise ValueError(f"Unsupported FPN-MIL input shape: {tuple(images.shape)}")
 
-    def forward(self, images):
-        output = self.base_model(self._prepare_inputs(images))
-
+    def _primary_output(self, output):
         # Generic trainer expects logits tensor. Keep only primary prediction.
         if isinstance(output, (tuple, list)):
             return output[0]
         return output
+
+    def forward(self, images):
+        return self._primary_output(self.base_model(self._prepare_inputs(images)))
+
+    def encode_features(self, images):
+        images = self._prepare_inputs(images)
+        if self.base_model.inst_encoder is None:
+            return images
+
+        if getattr(self.base_model, "multi_scale_model", None) in ["fpn", "backbone_pyramid"]:
+            batch_size, num_patches, channels, height, width = images.size()
+            flattened_images = images.view(-1, channels, height, width)
+            inst_encoder = self.base_model.inst_encoder
+            if isinstance(inst_encoder, FeaturePyramidNetwork) and inst_encoder.backbone is not None:
+                feature_maps = inst_encoder.backbone(flattened_images)
+                feature_maps = list(feature_maps.values()) if isinstance(feature_maps, dict) else list(feature_maps)
+                expected_channels = [
+                    block[0].in_channels
+                    for _, block in sorted(inst_encoder.inner_blocks.items(), key=lambda item: item[0])
+                ]
+                matched_maps = []
+                search_start = 0
+                for channels in expected_channels:
+                    match_index = next(
+                        (idx for idx in range(search_start, len(feature_maps)) if feature_maps[idx].shape[1] == channels),
+                        None,
+                    )
+                    if match_index is None:
+                        raise ValueError(
+                            f"Could not find FPN feature map with {channels} channels. "
+                            f"Available channels: {[fmap.shape[1] for fmap in feature_maps]}"
+                        )
+                    matched_maps.append(feature_maps[match_index])
+                    search_start = match_index + 1
+                feature_maps = matched_maps
+            else:
+                feature_maps = inst_encoder(flattened_images)
+                feature_maps = list(feature_maps.values()) if isinstance(feature_maps, dict) else list(feature_maps)
+
+            return [
+                fmap.view(batch_size, num_patches, fmap.size(1), fmap.size(2), fmap.size(3))
+                for fmap in feature_maps
+            ]
+
+        batch_size, num_patches, channels, height, width = images.size()
+        features = self.base_model.inst_encoder(images.view(-1, channels, height, width))
+        return features.view(batch_size, num_patches, -1)
+
+    def classify_features(self, features):
+        inst_encoder = self.base_model.inst_encoder
+        if isinstance(inst_encoder, FeaturePyramidNetwork):
+            original_backbone = inst_encoder.backbone
+            inst_encoder.backbone = None
+            try:
+                return self._primary_output(self.base_model(features))
+            finally:
+                inst_encoder.backbone = original_backbone
+
+        self.base_model.inst_encoder = None
+        try:
+            return self._primary_output(self.base_model(features))
+        finally:
+            self.base_model.inst_encoder = inst_encoder
 
     def freeze_image_encoder(self):
         return self.base_model.freeze_image_encoder()
@@ -37,7 +102,7 @@ class FpnMilInputAdapter(nn.Module):
 def build_model(args): 
 
     ###################### Define the Feature Extractor ######################
-    if args.feature_extraction == 'online': 
+    if args.feature_extraction in ['online', 'both']: 
         feature_extractor, num_chs = Define_Feature_Extractor(args) 
 
     else: # offline feature extraction: use pre-extracted features 

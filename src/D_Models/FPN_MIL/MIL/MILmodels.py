@@ -502,10 +502,16 @@ class PyramidalMILmodel(MIL):
                     x_pyramid[f'feat_{idx}'] = x_scale.view(batch_size, num_patches, -1)
                 
         else:
-            if self.multi_scale_model == 'msp': 
+            if isinstance(x, (dict, OrderedDict)):
+                x_pyramid = x
+            elif self.multi_scale_model == 'msp': 
                 x_pyramid = OrderedDict({
                     f'feat_{idx}': x[scale] for idx, scale in enumerate(self.scales)
                 })
+            else:
+                raise ValueError(
+                    "Offline FPN-MIL features must be an OrderedDict/dict of cached pyramid features."
+                )
         
         if self.type_scale_aggregator in ['concatenation', 'gated-attention']: 
             scale_outputs = []
@@ -724,6 +730,16 @@ class NestedPyramidalMILmodel(MIL):
                 fmap = fmap.view(batch_size, num_patches, channels, height, width) 
 
                 x_pyramid[key] = fmap 
+
+        else:
+            if isinstance(x, (dict, OrderedDict)):
+                x_pyramid = x
+                first_feature = next(iter(x_pyramid.values()))
+                num_patches = first_feature.size(1)
+            else:
+                raise ValueError(
+                    "Offline nested FPN-MIL features must be an OrderedDict/dict of cached pyramid features."
+                )
                 
         if self.type_scale_aggregator in ['concatenation', 'gated-attention']: 
             scale_outputs = []
