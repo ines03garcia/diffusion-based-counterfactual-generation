@@ -6,6 +6,7 @@ import math
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
 from torch.optim.lr_scheduler import LambdaLR
 import logging
 from torch.amp import autocast
@@ -167,37 +168,40 @@ def _prepare_binary_targets(labels, outputs):
 
 
 def create_optimizer(model, args):
-	"""
-	Creates optimizer and calculates respective learning rates (regardless of whether layers are currently frozen or not).
-
-	Returns:
-		optimizer: Configured AdamW optimizer
-	"""
-	# Differential learning rates
+	"""Create an AdamW optimizer over trainable parameters only."""
 	if args.use_differential_lr:
 		backbone_params = []
 		classifier_params = []
 
-		# Include ALL parameters (not just trainable ones)
 		for name, param in model.named_parameters():
+			if not param.requires_grad:
+				continue
 			if 'classifier' in name or 'heads' in name:
 				classifier_params.append(param)
 			else:
 				backbone_params.append(param)
 
-		optimizer = optim.AdamW([
-			{'params': backbone_params, 'lr': args.lr * 0.1},
-			{'params': classifier_params, 'lr': args.lr},
-		], weight_decay=args.weight_decay)
+		param_groups = []
+		if backbone_params:
+			param_groups.append({'params': backbone_params, 'lr': args.lr * 0.1, 'name': 'backbone'})
+		if classifier_params:
+			param_groups.append({'params': classifier_params, 'lr': args.lr, 'name': 'classifier'})
+		if not param_groups:
+			raise ValueError("No trainable parameters found for optimizer.")
 
-		log.info(f"Using differential learning rates: backbone LR={args.lr * 0.1:.2e}, classifier LR={args.lr:.2e}")
+		optimizer = optim.AdamW(param_groups, weight_decay=args.weight_decay)
+		lr_summary = ", ".join(f"{group['name']} LR={group['lr']:.2e}" for group in param_groups)
+		log.info(f"Using differential learning rates over trainable parameters: {lr_summary}")
 	else:
+		trainable_params = [param for param in model.parameters() if param.requires_grad]
+		if not trainable_params:
+			raise ValueError("No trainable parameters found for optimizer.")
 		optimizer = optim.AdamW(
-			model.parameters(),
+			trainable_params,
 			lr=args.lr,
 			weight_decay=args.weight_decay,
 		)
-		log.info(f"Using uniform learning rate: {args.lr:.2e}")
+		log.info(f"Using uniform learning rate over trainable parameters: {args.lr:.2e}")
 
 	return optimizer
 
@@ -429,6 +433,113 @@ def train_epoch(
     )
 
     return epoch_loss, epoch_acc, epoch_f1
+
+def cache_model_features(model, dataloader, device, batch_size, shuffle=False, seed=None):
+    """Run a frozen feature extractor once and return a loader over cached embeddings."""
+    model.eval()
+    feature_batches = []
+    label_batches = []
+
+    with torch.no_grad():
+        for images, labels, _ in tqdm(dataloader, desc="Caching features"):
+            images = images.to(device, non_blocking=True)
+            features = model.encode_features(images)
+            feature_batches.append(features.detach().float().cpu())
+            label_batches.append(labels.detach().cpu())
+
+    features = torch.cat(feature_batches, dim=0)
+    labels = torch.cat(label_batches, dim=0)
+    dataset = TensorDataset(features, labels)
+    generator = None
+    if seed is not None:
+        generator = torch.Generator().manual_seed(seed)
+
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        pin_memory=True,
+        generator=generator,
+    )
+
+
+def train_cached_feature_epoch(
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    device,
+    scaler,
+    scheduler=None,
+):
+    """Train the classifier head for one epoch using cached image features."""
+    model.train()
+    running_loss = 0.0
+    predictions = []
+    targets = []
+    amp_enabled = device.type == "cuda"
+
+    for features, labels in tqdm(dataloader, desc="Training cached features"):
+        features = features.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+
+        optimizer.zero_grad(set_to_none=True)
+
+        with autocast("cuda", enabled=amp_enabled):
+            outputs = model.classify_features(features)
+            labels_for_loss = _prepare_binary_targets(labels, outputs)
+            loss = criterion(outputs, labels_for_loss)
+
+        scaler.scale(loss).backward()
+        old_scale = scaler.get_scale()
+        scaler.step(optimizer)
+        scaler.update()
+        new_scale = scaler.get_scale()
+
+        if scheduler is not None and new_scale >= old_scale:
+            scheduler.step()
+
+        running_loss += loss.detach().float().item()
+
+        with torch.no_grad():
+            preds = (torch.sigmoid(outputs.float()) > 0.5).float()
+            predictions.append(preds.detach().cpu())
+            targets.append(labels.float().detach().cpu())
+
+    predictions = torch.cat(predictions).numpy()
+    targets = torch.cat(targets).numpy()
+    epoch_loss = running_loss / len(dataloader)
+    epoch_acc = accuracy_score(targets, predictions)
+    epoch_f1 = f1_score(targets, predictions, average="weighted", zero_division=0)
+
+    return epoch_loss, epoch_acc, epoch_f1
+
+
+def validate_cached_feature_epoch(model, dataloader, criterion, device):
+    """Validate the classifier head using cached image features."""
+    model.eval()
+    running_loss = 0.0
+    predictions = []
+    targets = []
+
+    with torch.no_grad():
+        for features, labels in tqdm(dataloader, desc="Validation cached features"):
+            features = features.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
+            outputs = model.classify_features(features)
+            labels_for_loss = _prepare_binary_targets(labels, outputs)
+            loss = criterion(outputs, labels_for_loss)
+
+            running_loss += loss.detach().float().item()
+            preds = (torch.sigmoid(outputs.float()) > 0.5).float()
+            predictions.extend(preds.cpu().numpy())
+            targets.extend(labels.float().cpu().numpy())
+
+    epoch_loss = running_loss / len(dataloader)
+    f1 = f1_score(targets, predictions, average="weighted", zero_division=0)
+
+    return epoch_loss, f1, predictions, targets
+
 
 def validate_epoch(model, dataloader, criterion, device):
 	"""Validate for one epoch"""

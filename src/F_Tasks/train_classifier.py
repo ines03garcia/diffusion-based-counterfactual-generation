@@ -27,6 +27,9 @@ from src.E_Aux_Scripts.classifier_helpers import (
     create_optimizer,
     train_epoch,
     validate_epoch,
+    cache_model_features,
+    train_cached_feature_epoch,
+    validate_cached_feature_epoch,
     resume_from_checkpoint,
     plot_training_metrics,
     LinearWarmupCosineAnnealingLR,
@@ -352,9 +355,19 @@ def main():
                     criterion = LOWLoss(lamb=0.1).to(device)
                 log.debug("Loss function created")
 
+                use_cached_mammo_clip_features = (
+                    args.model_type == "mammo-clip"
+                    and args.arch.lower().endswith("_lp")
+                    and args.loss == "bce"
+                    and not args.add_cf_batch
+                    and not args.use_mixup
+                )
+                train_epoch_loader = train_loader
+                val_epoch_loader = val_loader if not args.no_validation else None
+
                 # Learning rate scheduler: Linear warmup + cosine annealing (upstream)
                 # Determine warmup steps (expressed in optimizer steps / batches)
-                total_steps = len(train_loader) * args.epochs
+                total_steps = len(train_epoch_loader) * args.epochs
                 we = float(getattr(args, 'warmup_epochs', 0.0))
                 if we <= 0.0:
                     warmup_steps = 0
@@ -363,7 +376,7 @@ def main():
                     warmup_steps = max(1, int(total_steps * we))
                 else:
                     # convert nr of epochs to steps
-                    warmup_steps = max(1, int(len(train_loader) * we))
+                    warmup_steps = max(1, int(len(train_epoch_loader) * we))
 
                 scheduler = LinearWarmupCosineAnnealingLR(optimizer, total_steps=total_steps, warmup_steps=warmup_steps)
                 log.debug(f"LinearWarmupCosineAnnealingLR scheduler created. total_steps={total_steps}, warmup_steps={warmup_steps}")
@@ -378,6 +391,33 @@ def main():
                     start_epoch, best_val_loss = resume_from_checkpoint(
                         checkpoint_path, model, optimizer, device
                     )
+
+                if use_cached_mammo_clip_features:
+                    log.info(
+                        "Caching Mammo-CLIP image features for linear probing; "
+                        "subsequent epochs will train only the classifier head."
+                    )
+                    if args.augmentation_type != "none":
+                        log.info(
+                            "Training features are cached after one pass through the configured "
+                            "training transform, so stochastic augmentations will not be resampled each epoch."
+                        )
+                    train_epoch_loader = cache_model_features(
+                        model,
+                        train_loader,
+                        device,
+                        batch_size=args.batch_size,
+                        shuffle=True,
+                        seed=seed,
+                    )
+                    if not args.no_validation:
+                        val_epoch_loader = cache_model_features(
+                            model,
+                            val_loader,
+                            device,
+                            batch_size=args.batch_size,
+                            shuffle=False,
+                        )
 
                 if not args.no_validation:
                     # Early stopping parameters
@@ -409,23 +449,33 @@ def main():
                         #unwrap_model(model).unfreeze_layers(epoch, args.epochs)
 
                     # Train
-                    train_loss, train_acc, train_f1 = train_epoch(
-                        model, train_loader, criterion, optimizer, device, scaler,
-                        add_cf_batch=args.add_cf_batch,
-                        cf_dir=args.cf_dir,
-                        transform=train_transform,
-                        use_mixup=args.use_mixup,
-                        mixup_alpha=args.mixup_alpha,
-                        scheduler=scheduler,
-                    )
+                    if use_cached_mammo_clip_features:
+                        train_loss, train_acc, train_f1 = train_cached_feature_epoch(
+                            model, train_epoch_loader, criterion, optimizer, device, scaler,
+                            scheduler=scheduler,
+                        )
+                    else:
+                        train_loss, train_acc, train_f1 = train_epoch(
+                            model, train_epoch_loader, criterion, optimizer, device, scaler,
+                            add_cf_batch=args.add_cf_batch,
+                            cf_dir=args.cf_dir,
+                            transform=train_transform,
+                            use_mixup=args.use_mixup,
+                            mixup_alpha=args.mixup_alpha,
+                            scheduler=scheduler,
+                        )
                     
                     if not args.no_validation:
                         # Validate
-                        val_loss, val_f1, val_preds, val_targets = validate_epoch(
-                            model, val_loader, criterion, device
-                        )
+                        if use_cached_mammo_clip_features:
+                            val_loss, val_f1, val_preds, val_targets = validate_cached_feature_epoch(
+                                model, val_epoch_loader, criterion, device
+                            )
+                        else:
+                            val_loss, val_f1, val_preds, val_targets = validate_epoch(
+                                model, val_epoch_loader, criterion, device
+                            )
                     
-                    scheduler.step()
 
                     # Record history
                     history['train_loss'].append(train_loss)
@@ -436,8 +486,10 @@ def main():
                         history['val_f1'].append(val_f1)
                         log.info(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, Train F1: {train_f1:.4f}")
                         log.info(f"Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}")
-                    history['learning_rate'].append(scheduler.get_last_lr()[0])
-                    log.info(f"Current LR: {scheduler.get_last_lr()[0]:.2e}")
+                    current_lrs = scheduler.get_last_lr()
+                    history['learning_rate'].append(current_lrs[-1])
+                    lr_summary = ", ".join(f"{lr:.2e}" for lr in current_lrs)
+                    log.info(f"Current LR(s): {lr_summary}")
 
                     if not args.no_validation:
                         # Early stopping based on validation loss

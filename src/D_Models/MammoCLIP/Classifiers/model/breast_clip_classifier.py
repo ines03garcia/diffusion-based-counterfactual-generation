@@ -71,7 +71,17 @@ class BreastClipClassifier(nn.Module):
             f"({frozen_tensors} tensors, {frozen_scalars:,} scalar parameters)."
         )
 
+        self.image_encoder.eval()
         return frozen_tensors
+
+    def train(self, mode=True):
+        super().train(mode)
+        if self.arch.endswith("_lp"):
+            self.image_encoder.eval()
+        return self
+
+    def classify_features(self, image_features):
+        return self.classifier(image_features)
 
     def forward(self, images):
         if self.image_encoder_type.lower() == "swin":
@@ -102,6 +112,17 @@ class MammoClipInputAdapter(nn.Module):
 
     def forward(self, images):
         return self.base_model(self._prepare_inputs(images))
+
+    def encode_features(self, images):
+        return self.base_model.encode_image(self._prepare_inputs(images))
+
+    def classify_features(self, image_features):
+        return self.base_model.classify_features(image_features)
+
+    def train(self, mode=True):
+        super().train(mode)
+        self.base_model.train(mode)
+        return self
     
     def freeze_image_encoder(self):
         """Freeze the full Mammo-CLIP image encoder for linear probing."""
