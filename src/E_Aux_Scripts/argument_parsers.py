@@ -18,6 +18,7 @@ def create_train_argparser():
     """Create argument parser for train_classifier.py"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, choices=['vindr'], default="vindr")
+    parser.add_argument('--label', type=str, choices=['birads', 'mass', 'calcification'], default='birads', help='Classifier label/task name used in the output directory')
     parser.add_argument('--data_dir', type=str, default=os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512"))
     parser.add_argument('--metadata_path', type=str, default=os.path.join(METADATA_ROOT, "resized_df_512.json"))
     parser.add_argument('--training_category', type=str, choices=['all', 'healthy', 'anomalous', 'anomalous_with_findings'], default="all", help="Category of images to include in training")
@@ -64,7 +65,7 @@ def create_train_argparser():
 
     mammo_clip_parser = subparsers.add_parser('mammo-clip')
     mammo_clip_parser.add_argument('--batch_size', type=int, default=8)
-    mammo_clip_parser.add_argument('--epochs', type=int, default=100)
+    mammo_clip_parser.add_argument('--epochs', type=int, default=50)
     mammo_clip_parser.add_argument('--lr', type=float, default=5e-5)
     mammo_clip_parser.add_argument(
         "--clip_chk_pt_path",
@@ -74,6 +75,8 @@ def create_train_argparser():
     )
     mammo_clip_parser.add_argument("--data_frac", default=1.0, type=float)
     mammo_clip_parser.add_argument("--arch", default="breast_clip_det_b5_period_n_lp", type=str)
+    mammo_clip_parser.add_argument("--feature_extraction", choices=["online", "offline", "both"], default="online", type=str, help="Feature extraction mode: online caches in memory, offline loads cached features, both computes and saves cached features.")
+    mammo_clip_parser.add_argument("--feature_cache_path", default=None, type=str, help="Feature cache file or directory used by --feature_extraction offline/both.")
 
     mammo_clip_parser.add_argument("--VER", default="084", type=str)
     mammo_clip_parser.add_argument("--alpha", default=10, type=float)
@@ -89,15 +92,16 @@ def create_train_argparser():
     fpn_mil_parser = subparsers.add_parser('fpn-mil')
     fpn_mil_parser.add_argument('--n_class', type=int, default=1, help='Number of classes for classification (default: 1 for binary classification)')
     fpn_mil_parser.add_argument('--batch_size', type=int, default=8)
-    fpn_mil_parser.add_argument('--epochs', type=int, default=100)
+    fpn_mil_parser.add_argument('--epochs', type=int, default=50)
     fpn_mil_parser.add_argument('--lr', type=float, default=5e-5)
     fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
     fpn_mil_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
 
     # FPN-MIL: Patch extraction
     fpn_mil_parser.add_argument("--img-size", nargs='+', default=[1520, 912])
-    fpn_mil_parser.add_argument("--feature_extraction", default='online', type=str)
+    fpn_mil_parser.add_argument("--feature_extraction", choices=["online", "offline", "both"], default="online", type=str, help="Feature extraction mode: online caches in memory, offline loads cached features, both computes and saves cached features.")
     fpn_mil_parser.add_argument("--feat_dim", default=176, type=int)
+    fpn_mil_parser.add_argument("--feature_cache_path", default=None, type=str, help="Feature cache file or directory used by --feature_extraction offline/both.")
     fpn_mil_parser.add_argument('--patching', action='store_true', default=True, help='Whether to perform patching on full-resolution images. If false, it will consider previously extracted patches that were saved in a directory (default: True)')
     fpn_mil_parser.add_argument('--source_image', type=str, default='patches', choices=['patches', 'full_image'])
     fpn_mil_parser.add_argument('--patch_size', type=int, default=512)
@@ -150,6 +154,7 @@ def create_test_argparser():
     """Create argument parser for test_classifier.py"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, choices=["vindr", "inbreast"], default="vindr")
+    parser.add_argument("--label", type=str, choices=["birads", "mass", "calcification"], default="birads", help="Classifier label/task name used in the output directory")
     parser.add_argument("--data_dir", type=str, default=None)
     parser.add_argument("--metadata_path", type=str, default=None)
     parser.add_argument(

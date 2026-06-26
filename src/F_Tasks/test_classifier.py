@@ -167,7 +167,7 @@ def main():
 		aug_tag = '/unknown_aug'
 
 	setup = f"{config}{aug_tag}"
-	log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="test", dataset=args.dataset, model_type=args.model_type, setup=setup)
+	log = logger.Logger(experiment_type="Classifiers", sub_experiment_type="test", label=args.label, dataset=args.dataset, model_type=args.model_type, setup=setup)
 	log.configure_root_logger()
 	log.info(f"Logs will be saved to: {log.output_dir}")
 

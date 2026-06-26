@@ -4,13 +4,14 @@ import os.path as osp
 import datetime
 
 class Logger:
-    def __init__(self, experiment_type=None, sub_experiment_type=None, dataset=None, model_type=None, setup=None, base_logs_path='data/logs', log_file='info.log', level=logging.INFO, to_console=True):
+    def __init__(self, experiment_type=None, sub_experiment_type=None, label=None, dataset=None, model_type=None, setup=None, base_logs_path='data/logs', log_file='info.log', level=logging.INFO, to_console=True):
         """
         Initialize logger with experiment-specific directory structure.
         
         Args:
             experiment_type: Type of experiment ('DDPM', 'Classifiers' or 'Evaluation')
             sub_experiment_type: Type of sub-experiment ('train', 'test')
+            label: Classifier label/task name (e.g., 'birads', 'mass', 'calcification')
             dataset: Type of dataset being used (e.g., 'vindr', 'inbreast')
             model_type: Type of model being used (e.g., 'convnext', 'vit', 'fpn-mil')
             setup: Type of setup (e.g., 'no_cf', 'cf', ...)
@@ -25,6 +26,8 @@ class Logger:
             experiment_log_dir = f"{experiment_type}"
             if sub_experiment_type:
                 experiment_log_dir += f"/{sub_experiment_type}"
+            if label:
+                experiment_log_dir += f"/{label}"
             if dataset:
                 experiment_log_dir += f"/{dataset}"
             if model_type:
