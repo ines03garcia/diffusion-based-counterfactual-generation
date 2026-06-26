@@ -422,8 +422,10 @@ def main():
                 if not args.no_validation:
                     # Early stopping parameters
                     patience = args.patience
+                    min_delta = args.min_delta
                     patience_counter = 0
                     log.info(f"Early stopping patience: {patience} epochs")
+                    log.info(f"Minimum validation-loss improvement: {min_delta:.6f}")
                 
                 # Training history
                 history = {
@@ -493,7 +495,7 @@ def main():
 
                     if not args.no_validation:
                         # Early stopping based on validation loss
-                        if val_loss < best_val_loss:
+                        if val_loss < best_val_loss - min_delta:
                             best_val_loss = val_loss
                             patience_counter = 0
                             
@@ -503,7 +505,10 @@ def main():
                             log.info(f"New best model saved. Val Loss: {val_loss:.4f}")
                         else:
                             patience_counter += 1
-                            log.info(f"No improvement. Patience: {patience_counter}/{patience}")
+                            log.info(
+                                f"No improvement of at least {min_delta:.6f}. "
+                                f"Patience: {patience_counter}/{patience}"
+                            )
                         if patience_counter >= patience:
                             log.info(f"Early stopping triggered after {epoch+1} epochs")
                             break
