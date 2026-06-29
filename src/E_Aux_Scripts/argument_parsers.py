@@ -43,7 +43,18 @@ def create_train_argparser():
     parser.add_argument('--augmentation_type', type=str, choices=['none', 'standard'], default="standard")
     parser.add_argument('--use_mixup', action='store_true', default=False, help='Whether to apply MixUp augmentation during training')
     parser.add_argument('--mixup_alpha', type=float, default=1.0, help='Beta distribution parameter for MixUp (higher = more diverse mixing)')
-    parser.add_argument("--resume_from_checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint path to resume. Absolute paths and paths relative to the project root or models/ are supported.",
+    )
+    parser.add_argument(
+        "--start_epoch",
+        type=int,
+        default=None,
+        help="Number of the last completed epoch in the checkpoint. Training continues at the next epoch.",
+    )
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--multiple_seeds', action='store_true', default=False)
     parser.add_argument('--single_seed', action='store_true', default=False, help='Train with a single seed (default mode)')

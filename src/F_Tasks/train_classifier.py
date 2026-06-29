@@ -87,19 +87,43 @@ def parse_and_validate_args():
     if args.multiple_seeds:
         args.no_validation = True
 
+    if args.start_epoch is not None and args.resume_from_checkpoint is None:
+        parser.error("--start_epoch requires --resume_from_checkpoint.")
+    if args.resume_from_checkpoint is not None and args.multiple_seeds:
+        parser.error("Checkpoint resume is only supported for a single-seed run.")
+    if args.start_epoch is not None and not 0 <= args.start_epoch < args.epochs:
+        parser.error("--start_epoch must be between 0 and --epochs - 1.")
+
     return validate_encoder_training_configuration(args, parser)
+
+
+def resolve_resume_checkpoint_path(checkpoint_path):
+    """Resolve an absolute or project/models-relative checkpoint path."""
+    checkpoint_path = os.path.expanduser(checkpoint_path)
+    if os.path.isabs(checkpoint_path):
+        return checkpoint_path
+
+    candidates = [
+        os.path.join(PROJECT_ROOT, checkpoint_path),
+        os.path.join(MODELS_ROOT, checkpoint_path),
+    ]
+    return next((path for path in candidates if os.path.exists(path)), candidates[0])
 
 
 def unwrap_model(model):
     return model.module if isinstance(model, nn.DataParallel) else model
 
-def save_checkpoint(save_path, model, optimizer, epoch, args, val_loss=None):
+def save_checkpoint(save_path, model, optimizer, epoch, args, val_loss=None, scheduler=None, scaler=None):
     checkpoint = {
         'epoch': epoch,
         'model_state_dict': unwrap_model(model).state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'args': vars(args),
     }
+    if scheduler is not None:
+        checkpoint['scheduler_state_dict'] = scheduler.state_dict()
+    if scaler is not None:
+        checkpoint['scaler_state_dict'] = scaler.state_dict()
     if val_loss is not None:
         checkpoint['val_loss'] = val_loss
     torch.save(checkpoint, save_path)
@@ -426,16 +450,24 @@ def main():
 
                 scheduler = LinearWarmupCosineAnnealingLR(optimizer, total_steps=total_steps, warmup_steps=warmup_steps)
                 log.debug(f"LinearWarmupCosineAnnealingLR scheduler created. total_steps={total_steps}, warmup_steps={warmup_steps}")
+                scaler = GradScaler("cuda", enabled=(device.type == "cuda"))
 
                 # Initialization for training loop
                 start_epoch = 0
                 best_val_loss = float('inf')
 
                 # Resume from checkpoint if specified
-                if args.resume_from_checkpoint and fold == 0:  # Only resume for the first fold if doing cross-validation
-                    checkpoint_path = os.path.join(MODELS_ROOT, args.resume_from_checkpoint)
+                if args.resume_from_checkpoint and fold == start_fold:
+                    checkpoint_path = resolve_resume_checkpoint_path(args.resume_from_checkpoint)
                     start_epoch, best_val_loss = resume_from_checkpoint(
-                        checkpoint_path, model, optimizer, device
+                        checkpoint_path,
+                        model,
+                        optimizer,
+                        device,
+                        scheduler=scheduler,
+                        scaler=scaler,
+                        start_epoch=args.start_epoch,
+                        steps_per_epoch=len(train_epoch_loader),
                     )
 
                 if use_cached_features:
@@ -497,8 +529,6 @@ def main():
                 if not args.no_validation:
                     history['val_loss'] = []
                     history['val_f1'] = []
-
-                scaler = GradScaler("cuda", enabled=(device.type == "cuda"))
 
                 for epoch in range(start_epoch, args.epochs):
                     epoch_start_time = time.time()
@@ -562,7 +592,7 @@ def main():
                             
                             # Save best model
                             save_path = os.path.join(fold_results_dir, 'best_model.pth')
-                            save_checkpoint(save_path, model, optimizer, epoch, args, val_loss=val_loss)
+                            save_checkpoint(save_path, model, optimizer, epoch, args, val_loss=val_loss, scheduler=scheduler, scaler=scaler)
                             log.info(f"New best model saved. Val Loss: {val_loss:.4f}")
                         else:
                             patience_counter += 1
@@ -597,13 +627,13 @@ def main():
                     if args.save_checkpoints > 0 and (epoch + 1) % args.save_checkpoints == 0 and epoch < args.epochs - 1:
                         save_path = os.path.join(fold_results_dir, f'checkpoint_epoch_{epoch+1}.pth')
 
-                        save_checkpoint(save_path, model, optimizer, epoch, args)
+                        save_checkpoint(save_path, model, optimizer, epoch, args, scheduler=scheduler, scaler=scaler)
                         log.info(f"Saved intermediate checkpoint at epoch {epoch+1} to: {save_path}")
 
                 if args.no_validation:
                     # Save final model when no validation is used
                     save_path = os.path.join(fold_results_dir, 'final_model.pth')
-                    save_checkpoint(save_path, model, optimizer, epoch, args)
+                    save_checkpoint(save_path, model, optimizer, epoch, args, scheduler=scheduler, scaler=scaler)
                     log.info(f"Model trained for {args.epochs} epochs without validation and saved to: {save_path}")
                 
                 # Save training history

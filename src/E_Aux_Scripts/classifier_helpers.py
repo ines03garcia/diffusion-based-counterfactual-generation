@@ -227,18 +227,24 @@ class LinearWarmupCosineAnnealingLR(LambdaLR):
 		return max(0.0, multiplier)
 
 
-def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
-	"""Load model and optimizer state from checkpoint"""
-
+def resume_from_checkpoint(
+	checkpoint_path,
+	model,
+	optimizer,
+	device,
+	scheduler=None,
+	scaler=None,
+	start_epoch=None,
+	steps_per_epoch=None,
+):
+	"""Restore training state and return the zero-based epoch index to run next."""
 	if not os.path.exists(checkpoint_path):
-		log.error(f"Checkpoint not found: {checkpoint_path}")
-		return 0, float('inf')
+		raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
 	log.info(f"Resuming from checkpoint: {checkpoint_path}")
-	checkpoint = torch.load(checkpoint_path, map_location=device)
+	checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
-	# Load model state
-	state_dict = checkpoint['model_state_dict']
+	state_dict = checkpoint["model_state_dict"]
 	if isinstance(model, torch.nn.DataParallel):
 		try:
 			model.module.load_state_dict(state_dict)
@@ -250,15 +256,40 @@ def resume_from_checkpoint(checkpoint_path, model, optimizer, device):
 		except RuntimeError:
 			model.load_state_dict(_strip_module_prefix(state_dict))
 
-	# Load optimizer state
-	optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+	optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-	# Get checkpoint info
-	start_epoch = checkpoint['epoch'] + 1
-	best_val_loss = checkpoint.get('val_loss', float('inf'))
+	checkpoint_start_epoch = int(checkpoint["epoch"]) + 1
+	if start_epoch is None:
+		start_epoch = checkpoint_start_epoch
+	elif start_epoch != checkpoint_start_epoch:
+		raise ValueError(
+			f"--start_epoch={start_epoch} does not match the checkpoint, which contains "
+			f"{checkpoint_start_epoch} completed epochs."
+		)
 
-	log.info(f"Resumed from epoch {checkpoint['epoch']}, at path {checkpoint_path}, best val loss: {best_val_loss:.4f}")
+	if scheduler is not None:
+		if "scheduler_state_dict" in checkpoint:
+			scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+		elif steps_per_epoch is not None:
+			completed_steps = start_epoch * steps_per_epoch
+			scheduler.last_epoch = completed_steps
+			scheduler._step_count = completed_steps + 1
+			scheduler._last_lr = [
+				base_lr * lr_lambda(completed_steps)
+				for base_lr, lr_lambda in zip(scheduler.base_lrs, scheduler.lr_lambdas)
+			]
+			for param_group, lr in zip(optimizer.param_groups, scheduler._last_lr):
+				param_group["lr"] = lr
+			log.info(f"Positioned scheduler at optimizer step {completed_steps}.")
 
+	if scaler is not None and "scaler_state_dict" in checkpoint:
+		scaler.load_state_dict(checkpoint["scaler_state_dict"])
+
+	best_val_loss = checkpoint.get("val_loss", float("inf"))
+	log.info(
+		f"Restored {start_epoch} completed epochs from {checkpoint_path}; "
+		f"training will continue at epoch {start_epoch + 1}."
+	)
 	return start_epoch, best_val_loss
 
 def create_transforms(
