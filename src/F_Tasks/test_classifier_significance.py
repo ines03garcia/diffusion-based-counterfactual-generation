@@ -15,6 +15,16 @@ from src.E_Aux_Scripts.argument_parsers import create_significance_argparser
 LOWER_IS_BETTER_METRICS = {"log_loss"}
 
 
+def is_metrics_file_name(file_name: str) -> bool:
+	return (
+		file_name == "test_metrics.json"
+		or (
+			file_name.startswith("test_metrics_fixed_specificity_")
+			and file_name.endswith(".json")
+		)
+	)
+
+
 def find_metrics_files(root_path: str) -> List[str]:
 	if os.path.isfile(root_path):
 		return [root_path]
@@ -22,7 +32,7 @@ def find_metrics_files(root_path: str) -> List[str]:
 	metrics_files = []
 	for current_root, _, files in os.walk(root_path):
 		for file_name in files:
-			if file_name == "test_metrics.json":
+			if is_metrics_file_name(file_name):
 				metrics_files.append(os.path.join(current_root, file_name))
 
 	return sorted(metrics_files)
@@ -31,7 +41,7 @@ def find_metrics_files(root_path: str) -> List[str]:
 def load_metric_values(root_path: str, metric_name: str) -> List[float]:
 	metrics_files = find_metrics_files(root_path)
 	if not metrics_files:
-		raise FileNotFoundError(f"No test_metrics.json files found under: {root_path}")
+		raise FileNotFoundError(f"No test metrics JSON files found under: {root_path}")
 
 	metric_values = []
 	for metrics_file in metrics_files:
@@ -45,7 +55,7 @@ def load_metric_values(root_path: str, metric_name: str) -> List[float]:
 	if not metric_values:
 		raise ValueError(
 			f"No numeric '{metric_name}' values found under: {root_path}. "
-			"Use a scalar run-level metric from test_metrics.json, not predictions.json."
+			"Use a scalar run-level metric from a test metrics JSON file, not predictions.json."
 		)
 
 	return metric_values

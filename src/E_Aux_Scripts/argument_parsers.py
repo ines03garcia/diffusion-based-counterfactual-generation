@@ -277,14 +277,14 @@ DEFAULT_METRICS = [
 def create_significance_argparser():
     """Create argument parser for test_classifier_significance.py"""
     parser = argparse.ArgumentParser(description="Compare two classifier result directories with ASO.")
-    parser.add_argument("--baseline_aug", required=True, help="Directory or test_metrics.json file for baseline augmentation runs.")
-    parser.add_argument("--cf_aug", required=True, help="Directory or test_metrics.json file for counterfactual augmentation runs.")
+    parser.add_argument("--baseline_aug", required=True, help="Directory or test metrics JSON file for baseline augmentation runs.")
+    parser.add_argument("--cf_aug", required=True, help="Directory or test metrics JSON file for counterfactual augmentation runs.")
     parser.add_argument(
         "--metrics",
         nargs="*",
         type=str,
         default=DEFAULT_METRICS,
-        help="Metrics to compare from test_metrics.json. Defaults to all standard classification metrics.",
+        help="Metrics to compare from test metrics JSON files. Defaults to all standard classification metrics.",
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed passed to ASO.")
     parser.add_argument("--output_path", type=str, default=None, help="Optional JSON file to save the comparison result.")

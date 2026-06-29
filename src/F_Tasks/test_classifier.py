@@ -58,9 +58,10 @@ def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, pr
 	if not child_dirs:
 		raise FileNotFoundError(f"No '{child_prefix}*' subdirectories found under {output_path}")
 
+	metrics_filename = f"test_metrics{fixed_specificity_suffix(fixed_specificity, fixed_specificity_value)}.json"
 	metrics_list = []
 	for d in child_dirs:
-		metrics_file = os.path.join(output_path, d, "test_metrics.json")
+		metrics_file = os.path.join(output_path, d, metrics_filename)
 		if not os.path.exists(metrics_file):
 			print(f"Skipping {d}: missing {metrics_file}")
 			continue
@@ -68,7 +69,7 @@ def aggregate_existing_outputs(output_path, multiple_seeds, cross_validation, pr
 			metrics_list.append(json.load(fh))
 
 	if not metrics_list:
-		raise FileNotFoundError(f"No test_metrics.json files found under {output_path}")
+		raise FileNotFoundError(f"No {metrics_filename} files found under {output_path}")
 
 	# Aggregate numeric metrics (mean ± std)
 	agg_metrics = {}
