@@ -115,7 +115,8 @@ def build_model(args):
                 out_channels=args.fpn_dim,                           
                 top_down_pathway = True if args.multi_scale_model == 'fpn' else False,                                    
                 upsample_method = args.upsample_method,      
-                norm_layer = args.norm_fpn
+                norm_layer = args.norm_fpn,
+                arch=args.arch,
             )
                 
             num_chs = args.fpn_dim 
@@ -125,7 +126,7 @@ def build_model(args):
             num_chs = args.feat_dim # feat dim of pre-extracted features 
            
     ########################### Define the MIL Model ###########################
-    mil_args = dict(arch=args.arch,
+    mil_args = dict(training_strategy=args.training_strategy,
                     is_training = args.train, #not args.roi_eval, 
                     multi_scale_model = args.multi_scale_model,  
                     inst_encoder=feature_extractor,

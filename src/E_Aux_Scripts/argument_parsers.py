@@ -74,7 +74,8 @@ def create_train_argparser():
         help="Path to Mammo-CLIP chkpt"
     )
     mammo_clip_parser.add_argument("--data_frac", default=1.0, type=float)
-    mammo_clip_parser.add_argument("--arch", default="breast_clip_det_b5_period_n_lp", type=str)
+    mammo_clip_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
+    mammo_clip_parser.add_argument("--training_strategy", choices=["lp", "ft"], default="lp")
     mammo_clip_parser.add_argument("--feature_extraction", choices=["online", "offline", "both"], default="online", type=str, help="Feature extraction mode: online caches in memory, offline loads cached features, both computes and saves cached features.")
     mammo_clip_parser.add_argument("--feature_cache_path", default=None, type=str, help="Feature cache file or directory used by --feature_extraction offline/both.")
 
@@ -95,7 +96,8 @@ def create_train_argparser():
     fpn_mil_parser.add_argument('--epochs', type=int, default=50)
     fpn_mil_parser.add_argument('--lr', type=float, default=5e-5)
     fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
-    fpn_mil_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
+    fpn_mil_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
+    fpn_mil_parser.add_argument("--training_strategy", choices=["lp", "ft"], default="lp")
 
     # FPN-MIL: Patch extraction
     fpn_mil_parser.add_argument("--img-size", nargs='+', default=[1520, 912])
@@ -203,7 +205,8 @@ def create_test_argparser():
         type=str,
         help="Path to Mammo-CLIP checkpoint used to initialize encoder",
     )
-    mammo_clip_parser.add_argument("--arch", default="breast_clip_det_b5_period_n_lp", type=str)
+    mammo_clip_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
+    mammo_clip_parser.add_argument("--training_strategy", choices=["lp", "ft"], default="lp")
     mammo_clip_parser.add_argument("--mean", default=0.400409, type=float)
     mammo_clip_parser.add_argument("--std", default=0.259367, type=float)
     mammo_clip_parser.add_argument("--img-size", nargs="+", default=[1520, 912], type=int)
@@ -215,7 +218,8 @@ def create_test_argparser():
     fpn_mil_parser.add_argument("--batch_size", type=int, default=8)
     fpn_mil_parser.add_argument("--n_class", type=int, default=1)
     fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str)
-    fpn_mil_parser.add_argument("--arch", default="upmc_vindr_breast_clip_det_b5_period_n_lp", type=str)
+    fpn_mil_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
+    fpn_mil_parser.add_argument("--training_strategy", choices=["lp", "ft"], default="lp")
     fpn_mil_parser.add_argument("--img-size", nargs='+', default=[1520, 912])
     fpn_mil_parser.add_argument("--feature_extraction", default="online", type=str)
     fpn_mil_parser.add_argument("--feat_dim", default=176, type=int)

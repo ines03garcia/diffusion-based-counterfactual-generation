@@ -20,12 +20,12 @@ class BreastClipClassifier(nn.Module):
                 image_encoder_weights[".".join(k.split(".")[1:])] = ckpt["model"][k]
         self.image_encoder.load_state_dict(image_encoder_weights, strict=True)
         self.image_encoder_type = ckpt["config"]["model"]["image_encoder"]["model_type"]
-        self.arch = args.arch.lower()
-        if self.arch.endswith("_lp"):
-            logger.info("Linear probing selected via arch; image encoder remains frozen.")
+        self.training_strategy = args.training_strategy
+        if self.training_strategy == "lp":
+            logger.info("Linear probing selected; image encoder remains frozen.")
             self.freeze_image_encoder()
         else:
-            logger.info("Finetuning selected via arch; image encoder isn't frozen.")
+            logger.info("Fine-tuning selected; image encoder is not frozen.")
 
         self.classifier = LinearClassifier(feature_dim=self.image_encoder.out_dim, num_class=n_class)
         self.raw_features = None
@@ -76,7 +76,7 @@ class BreastClipClassifier(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-        if self.arch.endswith("_lp"):
+        if self.training_strategy == "lp":
             self.image_encoder.eval()
         return self
 

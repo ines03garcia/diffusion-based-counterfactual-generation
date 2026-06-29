@@ -55,6 +55,23 @@ def build_base_setup(args):
     return "/".join([augmentation_mode, mode])
 
 
+def validate_encoder_training_configuration(args, parser=None):
+    """Validate feature extraction against the requested training strategy."""
+    if args.model_type not in ["mammo-clip", "fpn-mil"]:
+        return args
+
+    if args.training_strategy == "ft" and args.feature_extraction != "online":
+        message = (
+            "Fine-tuning requires an online image encoder; "
+            "use --feature_extraction online when fine-tuning."
+        )
+        if parser is not None:
+            parser.error(message)
+        raise ValueError(message)
+
+    return args
+
+
 def parse_and_validate_args():
     parser = create_train_argparser()
     args = parser.parse_args()
@@ -70,7 +87,7 @@ def parse_and_validate_args():
     if args.multiple_seeds:
         args.no_validation = True
 
-    return args
+    return validate_encoder_training_configuration(args, parser)
 
 
 def unwrap_model(model):
@@ -328,8 +345,12 @@ def main():
                     #log.info(f"Enabled DataParallel across {torch.cuda.device_count()} CUDA devices")
 
                 feature_extraction_mode = getattr(args, "feature_extraction", None)
-                use_cached_features = (
+                linear_probe = (
                     args.model_type in ["mammo-clip", "fpn-mil"]
+                    and args.training_strategy == "lp"
+                )
+                use_cached_features = (
+                    linear_probe
                     and feature_extraction_mode in ["online", "offline", "both"]
                 )
                 
@@ -341,11 +362,14 @@ def main():
                             "and the remaining model layers are trained from cached features."
                         )
                         unwrap_model(model).freeze_image_encoder()
-                    elif args.arch.lower().endswith("_lp"):
-                        log.info("Linear probing selected via arch; image encoder remains frozen.")
+                    elif linear_probe:
+                        log.info("Linear probing selected; image encoder remains frozen.")
                         unwrap_model(model).freeze_image_encoder()
                     else:
-                        log.info("Finetuning selected via arch; image encoder isn't frozen.")
+                        log.info(
+                            "Fine-tuning selected; image encoder and classifier will be trained "
+                            "end to end without cached features."
+                        )
                 else:
                     if args.freeze_layers > 0:
                         log.info(f"Freezing the first {args.freeze_layers} layers of the model as specified by --freeze_layers.")

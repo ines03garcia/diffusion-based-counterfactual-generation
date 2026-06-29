@@ -44,7 +44,8 @@ def Define_Feature_Extractor(args) -> Union[nn.Module, int]:
             out_channels=args.fpn_dim,                           
             top_down_pathway = True if args.multi_scale_model == 'fpn' else False,                                    
             upsample_method = args.upsample_method,      
-            norm_layer = args.norm_fpn
+            norm_layer = args.norm_fpn,
+            arch=args.arch,
         )
         
         num_chs = args.fpn_dim

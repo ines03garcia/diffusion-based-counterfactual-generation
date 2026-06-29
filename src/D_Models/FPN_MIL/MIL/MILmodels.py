@@ -158,7 +158,7 @@ class ConcatAggregator(nn.Module):
 class MIL(nn.Module):
     
     def __init__(self,
-                arch: str = None,
+                training_strategy: str = "lp",
                 is_training: bool = True, 
                 multi_scale_model: str = None,
                 inst_encoder: nn.Module = None, 
@@ -183,7 +183,7 @@ class MIL(nn.Module):
                 trans_layer_norm: bool = False) -> None:
     
         super().__init__()
-        self.arch = arch.lower() if arch is not None else ""
+        self.training_strategy = training_strategy
         self.num_classes = num_classes
         self.sigmoid_func = sigmoid_func
         self.drop_classhead = drop_classhead
@@ -218,11 +218,11 @@ class MIL(nn.Module):
             self.aggregator = self.MILAggregator(fcl_encoder_dim)
             self.classifier = head(fcl_encoder_dim, num_classes, sigmoid_func, drop_classhead)
 
-        if self.arch.endswith("_lp"):
-            logger.info("FPN-MIL: linear probing selected via arch; freezing instance encoder.")
+        if self.training_strategy == "lp":
+            logger.info("FPN-MIL: linear probing selected; freezing instance encoder.")
             self.freeze_image_encoder()
         else:
-            logger.info("FPN-MIL: fine-tuning selected via arch; instance encoder is trainable.")
+            logger.info("FPN-MIL: fine-tuning selected; instance encoder is trainable.")
 
     def freeze_image_encoder(self):
         """Freeze the full online instance/image encoder for linear probing."""
