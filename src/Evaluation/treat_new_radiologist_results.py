@@ -146,20 +146,20 @@ def plot_alternative_rating_visualizations(task1, task2, output_dir):
     fig, ax = plt.subplots(figsize=(14, 6))
     x_positions = np.arange(len(RATINGS))
     bar_width = 0.16
-    bar_spacing = 0.18
+    bar_spacing = bar_width
     for offset_index, (task_name, has_cf) in enumerate(series_order):
         offset = (offset_index - 1.5) * bar_spacing
         ax.bar(x_positions + offset, percentages[(task_name, has_cf)], width=bar_width, color=colors[has_cf], edgecolor="black", hatch=hatches[task_name])
-    ax.set_title("Rating Distributions: Type by Task", fontsize=19)
+    ax.set_title("Real Healthy vs Counterfactual Healthy Rating Comparison", fontsize=19)
     ax.set_xlabel("Rating", fontsize=16)
-    ax.set_ylabel("% of images within type", fontsize=16)
+    ax.set_ylabel("Percentage of images (%)", fontsize=16)
     ax.set_xticks(x_positions, RATINGS)
     ax.tick_params(axis="both", labelsize=14)
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     ax.set_axisbelow(True)
-    type_legend = ax.legend(handles=[Patch(facecolor=colors[0], edgecolor="black", label=type_labels[0]), Patch(facecolor=colors[1], edgecolor="black", label=type_labels[1])], title="Data type", loc="upper left", fontsize=14, title_fontsize=14)
+    type_legend = ax.legend(handles=[Patch(facecolor=colors[0], edgecolor="black", label=type_labels[0]), Patch(facecolor=colors[1], edgecolor="black", label=type_labels[1])], title="Dataset", loc="upper left", fontsize=14, title_fontsize=14)
     ax.add_artist(type_legend)
-    ax.legend(handles=[Patch(facecolor="white", edgecolor="black", label=task_labels["task1"]), Patch(facecolor="white", edgecolor="black", hatch=hatches["task2"], label=task_labels["task2"])], title="Task / filling", loc="upper right", fontsize=14, title_fontsize=14)
+    ax.legend(handles=[Patch(facecolor="white", edgecolor="black", label=task_labels["task1"]), Patch(facecolor="white", edgecolor="black", hatch=hatches["task2"], label=task_labels["task2"])], title="Task", loc="upper right", fontsize=14, title_fontsize=14)
     fig.tight_layout()
     fig.savefig(output_dir / "01_four_bars_color_type_hatch_task.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
