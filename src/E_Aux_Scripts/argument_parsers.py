@@ -80,9 +80,9 @@ def create_train_argparser():
     mammo_clip_parser.add_argument('--lr', type=float, default=5e-5)
     mammo_clip_parser.add_argument(
         "--clip_chk_pt_path",
-        default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"),
+        default=None,
         type=str,
-        help="Path to Mammo-CLIP chkpt"
+        help="Path to Mammo-CLIP chkpt (defaults to the checkpoint matching --arch)"
     )
     mammo_clip_parser.add_argument("--data_frac", default=1.0, type=float)
     mammo_clip_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
@@ -106,7 +106,7 @@ def create_train_argparser():
     fpn_mil_parser.add_argument('--batch_size', type=int, default=8)
     fpn_mil_parser.add_argument('--epochs', type=int, default=50)
     fpn_mil_parser.add_argument('--lr', type=float, default=5e-5)
-    fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str, help="Path to Mammo-CLIP chkpt")
+    fpn_mil_parser.add_argument("--clip_chk_pt_path", default=None, type=str, help="Path to Mammo-CLIP chkpt (defaults to the checkpoint matching --arch)")
     fpn_mil_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
     fpn_mil_parser.add_argument("--training_strategy", choices=["lp", "ft"], default="lp")
 
@@ -212,9 +212,9 @@ def create_test_argparser():
     mammo_clip_parser.add_argument("--batch_size", type=int, default=8)
     mammo_clip_parser.add_argument(
         "--clip_chk_pt_path",
-        default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"),
+        default=None,
         type=str,
-        help="Path to Mammo-CLIP checkpoint used to initialize encoder",
+        help="Path to Mammo-CLIP checkpoint used to initialize encoder (defaults to the checkpoint matching --arch)",
     )
     mammo_clip_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
     mammo_clip_parser.add_argument("--training_strategy", choices=["lp", "ft"], default="lp")
@@ -228,7 +228,7 @@ def create_test_argparser():
     fpn_mil_parser = subparsers.add_parser("fpn-mil")
     fpn_mil_parser.add_argument("--batch_size", type=int, default=8)
     fpn_mil_parser.add_argument("--n_class", type=int, default=1)
-    fpn_mil_parser.add_argument("--clip_chk_pt_path", default=os.path.join(MODELS_ROOT, "b5-model-best-epoch-7.tar"), type=str)
+    fpn_mil_parser.add_argument("--clip_chk_pt_path", default=None, type=str, help="Defaults to the Mammo-CLIP checkpoint matching --arch")
     fpn_mil_parser.add_argument("--arch", choices=["b2", "b5"], default="b5")
     fpn_mil_parser.add_argument("--training_strategy", choices=["lp", "ft"], default="lp")
     fpn_mil_parser.add_argument("--img-size", nargs='+', default=[1520, 912])

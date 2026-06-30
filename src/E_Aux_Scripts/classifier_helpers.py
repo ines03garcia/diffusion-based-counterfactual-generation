@@ -35,6 +35,21 @@ from src.E_Aux_Scripts.LOW import LOWLoss
 
 log = logging.getLogger(__name__)
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MAMMO_CLIP_CHECKPOINTS = {
+	"b2": os.path.join(PROJECT_ROOT, "models", "b2-model-best-epoch-10.tar"),
+	"b5": os.path.join(PROJECT_ROOT, "models", "b5-model-best-epoch-7.tar"),
+}
+
+
+def resolve_mammo_clip_checkpoint(args):
+	"""Select the pretrained checkpoint that corresponds to the requested encoder."""
+	if args.model_type not in ["mammo-clip", "fpn-mil"]:
+		return
+
+	if args.clip_chk_pt_path is None:
+		args.clip_chk_pt_path = MAMMO_CLIP_CHECKPOINTS[args.arch]
+
 def add_cf_to_batch(images, labels, image_ids, cf_dir, device, transform):
 	"""
 	Add counterfactuals to batch while maintaining batch size.
@@ -114,6 +129,8 @@ def mixup_batch(images, labels, alpha=1.0):
 	return mixed_images, mixed_labels, mix_coef
 
 def build_model(args, device, experiment="train"):
+	resolve_mammo_clip_checkpoint(args)
+
 	# Prefer explicit --num-classes for downstream models when provided
 	num_classes = getattr(args, 'num_classes', None)
 	if num_classes is None or args.loss == "low":
