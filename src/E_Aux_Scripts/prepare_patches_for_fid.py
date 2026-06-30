@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 from PIL import Image
 import argparse
 import numpy as np
@@ -171,6 +172,31 @@ def is_patch_black_or_constant(image, black_threshold=5, max_black_fraction=0.0)
         return True, f"too_black_fraction_{black_frac:.4f}"
 
     return False, "valid"
+
+
+def copy_test_set_patches(metadata, source_dir, test_output_dir=None):
+    """Copy patches belonging to metadata records in the test split."""
+    if test_output_dir is None:
+        test_output_dir = f"{source_dir.rstrip(os.sep)}_test_set"
+
+    os.makedirs(test_output_dir, exist_ok=True)
+    test_image_ids = {
+        item.get("image_id")
+        for item in metadata
+        if item.get("split") == "test" and item.get("image_id")
+    }
+
+    copied_paths = []
+    for image_id in sorted(test_image_ids):
+        source_path = os.path.join(source_dir, image_id)
+        if not os.path.isfile(source_path):
+            continue
+
+        destination_path = os.path.join(test_output_dir, image_id)
+        shutil.copy2(source_path, destination_path)
+        copied_paths.append(destination_path)
+
+    return copied_paths, test_output_dir
 
 
 def get_healthy_patch(
@@ -421,6 +447,20 @@ def crop_counterfactuals_to_largest_bbox(
     print(f"Skipped CF too small: {skipped_cf_too_small}")
     print(f"Skipped no valid healthy: {skipped_no_valid_healthy}")
     print(f"Skipped healthy too small: {skipped_healthy_too_small}")
+
+    test_cf_paths, test_cf_output_dir = copy_test_set_patches(
+        metadata=metadata,
+        source_dir=output_dir,
+    )
+    test_healthy_paths, test_healthy_output_dir = copy_test_set_patches(
+        metadata=metadata,
+        source_dir=healthy_output_dir,
+    )
+    print(f"Copied test-set CF patches: {len(test_cf_paths)} to {test_cf_output_dir}")
+    print(
+        f"Copied test-set healthy patches: {len(test_healthy_paths)} "
+        f"to {test_healthy_output_dir}"
+    )
 
     return saved_cf_paths
 
