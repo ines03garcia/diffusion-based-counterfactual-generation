@@ -63,7 +63,7 @@ This repository provides code for generating counterfactual images using diffusi
   ```bash
   python src/F_Tasks/train_classifier.py [mode] [augmentation] <model_type> [model-specific-parameters]
   ```
-  Training now supports three mutually exclusive execution modes:
+  Training supports three mutually exclusive execution modes:
   - `--cross-validation`
   - `--multiple_seeds`
   - `--single_seed`
