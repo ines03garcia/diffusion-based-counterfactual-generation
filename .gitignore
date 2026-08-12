@@ -5,12 +5,3 @@ models/
 __pycache__/
 *.pyc
 .ipynb_checkpoints
-train_script.sh
-eval_script.sh
-iou_script.sh
-save_predictions.sh
-save_predictions.py
-Mammo-CLIP-output/
-train_script.sh
-train_script_cf.sh
-test_script.sh

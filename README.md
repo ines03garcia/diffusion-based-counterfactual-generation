@@ -19,14 +19,36 @@ This repository provides code for generating counterfactual images using diffusi
     - task scripts (train classifier, test classifier, ...)
 
 - **data/**
-  - `images/`: Contains dataset images, generated counterfactuals, masks, explainability visualizations, besides others.
+  - `images/`: Contains dataset images, generated counterfactuals, masks, explainability visualizations, besides others. In particular, the images under `images/datasets/images_png/` are the original Mammo-CLIP images, sourced from https://www.kaggle.com/datasets/shantanughosh/vindr-mammogram-dataset-dicom-to-png.
   - `logs/`: logs for each task experiment that was run.
-  - `metadata/`: folder with original metadata (grouped_df.csv), json file with processed metadata, radiologist assessment information, besides others.
+  - `metadata/`: folder with original metadata, json files with processed metadata, radiologist assessment information, besides others. In particular, `grouped_df.csv` comes from the repository https://github.com/marianamourao-37/Multi-scale-Attention-based-MIL and is the grouped-by-`image_id` version of the Mammo-CLIP metadata file `src/codebase/data_csv/vindr_detection_v1_folds.csv`.
   - `zips/`: Compressed data files.
 
 - **models/**
   - DDPM checkpoint.
   - Pretrained model weights for classifiers.
+
+## Configuration
+
+A `config.py` file should define the project paths used by the scripts. For example:
+
+```python
+import os
+
+ROOT = "path/to/diffusion-based-counterfactual-generation"
+DATA_ROOT = os.path.join(ROOT, "data")
+CODE_ROOT = os.path.join(ROOT, "code")
+MODELS_ROOT = os.path.join(ROOT, "models")
+
+IMAGES_ROOT = os.path.join(DATA_ROOT, "images")
+METADATA_ROOT = os.path.join(DATA_ROOT, "metadata")
+LOGS_PATH = os.path.join(DATA_ROOT, "logs")
+
+RESIZED_DATASET_DIR = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-512")
+PROCESSED_DATASET_DIR = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512")
+CF_DIR = os.path.join(IMAGES_ROOT, "repaint_results")
+MASKS_DIR = os.path.join(IMAGES_ROOT, "masks_512")
+```
 
 ## Key Features
 
