@@ -30,25 +30,16 @@ This repository provides code for generating counterfactual images using diffusi
 
 ## Configuration
 
-A `config.py` file should define the project paths used by the scripts. For example:
+The scripts import local paths from `src/config.py`. This file is intentionally
+ignored because dataset and model locations are machine-specific. Create it
+from the tracked example, then change the dataset-specific variables:
 
-```python
-import os
-
-ROOT = "path/to/diffusion-based-counterfactual-generation"
-DATA_ROOT = os.path.join(ROOT, "data")
-CODE_ROOT = os.path.join(ROOT, "code")
-MODELS_ROOT = os.path.join(ROOT, "models")
-
-IMAGES_ROOT = os.path.join(DATA_ROOT, "images")
-METADATA_ROOT = os.path.join(DATA_ROOT, "metadata")
-LOGS_PATH = os.path.join(DATA_ROOT, "logs")
-
-RESIZED_DATASET_DIR = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-512")
-PROCESSED_DATASET_DIR = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512")
-CF_DIR = os.path.join(IMAGES_ROOT, "repaint_results")
-MASKS_DIR = os.path.join(IMAGES_ROOT, "masks_512")
+```bash
+cp src/config.example.py src/config.py
 ```
+
+You can also set `PROJECT_ROOT` to place the `data/` and `models/` directories
+outside the repository. Do not commit the copied `src/config.py`.
 
 ## Key Features
 

@@ -5,7 +5,6 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import ast
 
 import matplotlib.pyplot as plt
 from src.config import METADATA_ROOT, DATA_ROOT
