@@ -64,21 +64,30 @@ the [healthy-vs-anomalous classifier checkpoint repository](https://huggingface.
   Mammo-CLIP trained without counterfactual augmentation.
 - `checkpoints/mammo_clip_cf.pth` and `configs/mammo_clip_cf_args.json`:
   Mammo-CLIP trained with counterfactual augmentation.
+- `checkpoints/fpn_mil_baseline_closest.pth` and
+  `configs/fpn_mil_baseline_closest_args.json`: closest surviving FPN-MIL
+  baseline checkpoint to the reported table metrics.
+- `checkpoints/fpn_mil_cf_closest.pth` and
+  `configs/fpn_mil_cf_closest_args.json`: closest surviving FPN-MIL
+  counterfactual-augmentation checkpoint to the reported table metrics.
 
-FPN-MIL checkpoints are not included because the checkpoint corresponding to
-the reported results could not be identified unambiguously.
+The original FPN-MIL checkpoint used for the reported table was stored on
+another server that was eventually erased. The uploaded FPN-MIL checkpoints
+are explicitly labeled as the closest surviving runs, not as the confirmed
+source of the table results. See `configs/fpn_mil_checkpoint_note.md` in the
+Hugging Face repository for the provenance note.
 
-The image datasets can be uploaded with
-`src/E_Aux_Scripts/upload_image_datasets_to_hf.py`. The uploader stores these
-folders as separate directories in a Hugging Face dataset repository:
+The image datasets are available in the [Hugging Face mammogram dataset
+repository](https://huggingface.co/datasets/senigarcia/diffusion-based-counterfactual-generation).
+They are stored as separate directories:
 
 - `VinDrMammo-CLIP-512-CLAHE`: processed VinDrMammo images used by the classifiers.
 - `VinDrMammo-CLIP-512-CLAHE-912-1520`: resized images used for full-resolution evaluation and FID preparation.
 - `repaint_results`: generated counterfactual images used for classifier augmentation and assessment.
 - `repaint_results_912x1520`: resized counterfactual images used mainly for FID preparation.
 
-The image-dataset repository link will be added here after the dataset
-repository is selected and uploaded.
+The same folders can be uploaded or updated with
+`src/E_Aux_Scripts/upload_image_datasets_to_hf.py`.
 
 ## Key Features
 

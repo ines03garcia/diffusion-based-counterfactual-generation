@@ -37,12 +37,33 @@ DEFAULT_CHECKPOINTS = {
         "data/logs/Classifiers/train/birads/mammo-clip/cf_aug/"
         "single_seed_no_validation/local_29-06-2026_14:43:07/seed_0/checkpoint_epoch_30.pth"
     ),
+    "fpn_mil_baseline_closest": (
+        "data/logs/Classifiers/train/birads/fpn-mil/baseline_aug/"
+        "single_seed_no_validation/local_08-06-2026_14:35:44/"
+        "seed_0/checkpoint_epoch_20.pth"
+    ),
+    "fpn_mil_cf_closest": (
+        "data/logs/Classifiers/train/birads/fpn-mil/cf_aug/"
+        "single_seed_no_validation/local_08-06-2026_14:48:20/"
+        "seed_0/final_model.pth"
+    ),
 }
 
 DEFAULT_ARGS = {
     name: path.split("/seed_0/", 1)[0] + "/args.json"
     for name, path in DEFAULT_CHECKPOINTS.items()
 }
+
+FPN_MIL_NOTE = """# FPN-MIL checkpoint provenance
+
+These are the closest surviving FPN-MIL checkpoints found in this repository
+when compared with the reported table metrics. They are not confirmed to be
+the checkpoints used for the table.
+
+The original FPN-MIL checkpoint used for the reported table results was stored
+on another server that was eventually erased. It could not be recovered from
+the repository history or the surviving evaluation logs.
+"""
 
 
 def parse_checkpoint_spec(spec: str) -> tuple[str, Path]:
@@ -77,7 +98,8 @@ def main() -> None:
         metavar="NAME=PATH",
         help=(
             "Checkpoint override. Repeat this option to upload selected files. "
-            "When omitted, the six matched baseline/CF checkpoints are uploaded."
+            "When omitted, the eight surviving matched/closest baseline and CF "
+            "checkpoints are uploaded."
         ),
     )
     parser.add_argument(
@@ -139,6 +161,14 @@ def main() -> None:
                 repo_type="model",
                 commit_message=f"Upload training arguments: {name}",
             )
+
+    api.upload_file(
+        path_or_fileobj=FPN_MIL_NOTE.encode("utf-8"),
+        path_in_repo="configs/fpn_mil_checkpoint_note.md",
+        repo_id=args.repo_id,
+        repo_type="model",
+        commit_message="Document FPN-MIL checkpoint provenance",
+    )
 
     print(f"Uploaded {len(resolved_checkpoints)} checkpoint(s).")
     print(f"https://huggingface.co/{args.repo_id}")

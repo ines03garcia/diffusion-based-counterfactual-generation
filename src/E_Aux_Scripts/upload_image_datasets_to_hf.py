@@ -26,7 +26,12 @@ DEFAULT_DATASETS = {
 }
 
 IMAGE_PATTERNS = [
+    "*.png",
     "**/*.png",
+]
+IGNORE_PATTERNS = [
+    ".ipynb_checkpoints/**",
+    "**/.ipynb_checkpoints/**",
 ]
 
 
@@ -126,6 +131,7 @@ def main() -> None:
             "folder_path": str(folder),
             "path_in_repo": name,
             "allow_patterns": IMAGE_PATTERNS,
+            "ignore_patterns": IGNORE_PATTERNS,
             "commit_message": f"Upload image dataset: {name}",
         }
         if args.revision is not None:
