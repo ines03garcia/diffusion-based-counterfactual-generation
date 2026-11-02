@@ -3,11 +3,7 @@
 import argparse
 import os
 
-# Set paths
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
-METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
-IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
+from src.config import CF_DIR, IMAGES_ROOT, METADATA_ROOT, PROCESSED_DATASET_DIR, RESIZED_METADATA_PATH
 
 
 # ============================================================================
@@ -19,8 +15,8 @@ def create_train_argparser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, choices=['vindr'], default="vindr")
     parser.add_argument('--label', type=str, choices=['birads', 'mass', 'calcification'], default='birads', help='Classifier label/task name used in the output directory')
-    parser.add_argument('--data_dir', type=str, default=os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512"))
-    parser.add_argument('--metadata_path', type=str, default=os.path.join(METADATA_ROOT, "resized_df_512.json"))
+    parser.add_argument('--data_dir', type=str, default=PROCESSED_DATASET_DIR)
+    parser.add_argument('--metadata_path', type=str, default=RESIZED_METADATA_PATH)
     parser.add_argument('--training_category', type=str, choices=['all', 'healthy', 'anomalous', 'anomalous_with_findings'], default="all", help="Category of images to include in training")
     parser.add_argument('--cf_dir', type=str, default=os.path.join(IMAGES_ROOT, "repaint_results"))
     

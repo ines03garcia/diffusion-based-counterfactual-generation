@@ -2,7 +2,18 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from src.config import (
+    NEW_RADIOLOGIST_RESULTS_DIR,
+    NEW_RADIOLOGIST_TASK1_PATH,
+    NEW_RADIOLOGIST_TASK2_PATH,
+    RADIOLOGIST_METADATA_PATH,
+)
 
 import matplotlib
 matplotlib.use("Agg")
@@ -11,9 +22,6 @@ from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_ROOT = PROJECT_ROOT / "data"
-METADATA_ROOT = DATA_ROOT / "metadata"
 RATINGS = [1, 2, 3, 4, 5]
 TASK_LABELS = {
     "task1": "Full Image",
@@ -31,22 +39,22 @@ def parse_args():
     parser.add_argument(
         "--task1_csv",
         type=Path,
-        default=METADATA_ROOT / "new_radiologist_assessment_task1.csv",
+        default=Path(NEW_RADIOLOGIST_TASK1_PATH),
     )
     parser.add_argument(
         "--task2_csv",
         type=Path,
-        default=METADATA_ROOT / "new_radiologist_assessment_task2.csv",
+        default=Path(NEW_RADIOLOGIST_TASK2_PATH),
     )
     parser.add_argument(
         "--metadata_path",
         type=Path,
-        default=METADATA_ROOT / "radiologist_dataset.json",
+        default=Path(RADIOLOGIST_METADATA_PATH),
     )
     parser.add_argument(
         "--output_dir",
         type=Path,
-        default=DATA_ROOT / "results/new_radiologist_assessment",
+        default=Path(NEW_RADIOLOGIST_RESULTS_DIR),
     )
     return parser.parse_args()
 

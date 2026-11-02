@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import traceback
+from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,12 +12,9 @@ from torch.utils.data import DataLoader
 import time
 from torch.amp import GradScaler
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
-METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
-IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
+from src.config import IMAGES_ROOT, METADATA_ROOT, MODELS_ROOT, ROOT as PROJECT_ROOT
 
 from src.C_Dataset_Handlers.VinDrMammo_dataset import VinDrMammo_dataset
 from src.E_Aux_Scripts import logger

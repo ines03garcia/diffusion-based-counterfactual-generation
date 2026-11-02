@@ -1,18 +1,25 @@
 import json
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import torch
 from scipy.stats import wilcoxon
 from torch.utils.data import DataLoader
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
-METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
-IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
+from src.config import (
+	IMAGES_ROOT,
+	INBREAST_DATASET_DIR,
+	INBREAST_METADATA_PATH,
+	METADATA_ROOT,
+	MODELS_ROOT,
+	PROCESSED_DATASET_DIR,
+	PROCESSED_METADATA_PATH,
+	ROOT as PROJECT_ROOT,
+)
 
 from src.E_Aux_Scripts import logger
 from src.E_Aux_Scripts.argument_parsers import create_wilcoxon_argparser
@@ -35,15 +42,15 @@ def resolve_checkpoint_path(checkpoint_path):
 def ensure_default_data_paths(args):
 	if args.data_dir is None:
 		if args.dataset == "vindr":
-			args.data_dir = os.path.join(IMAGES_ROOT, "VinDrMammo-CLIP-CLAHE")
+			args.data_dir = PROCESSED_DATASET_DIR
 		else:
-			args.data_dir = os.path.join(IMAGES_ROOT, "Inbreast_png")
+			args.data_dir = INBREAST_DATASET_DIR
 
 	if args.metadata_path is None:
 		if args.dataset == "vindr":
-			args.metadata_path = os.path.join(METADATA_ROOT, "processed_df_birads.json")
+			args.metadata_path = PROCESSED_METADATA_PATH
 		else:
-			args.metadata_path = os.path.join(METADATA_ROOT, "inbreast_test_metadata.csv")
+			args.metadata_path = INBREAST_METADATA_PATH
 
 
 def infer_true_class_probabilities(model, checkpoint_path, test_loader, device, threshold):

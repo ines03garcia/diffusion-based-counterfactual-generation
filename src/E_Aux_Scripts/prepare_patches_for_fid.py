@@ -4,6 +4,19 @@ import shutil
 from PIL import Image
 import argparse
 import numpy as np
+import sys
+from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from src.config import (
+    FID_CF_PATCHES_DIR,
+    FID_HEALTHY_PATCHES_DIR,
+    PROCESSED_METADATA_PATH,
+    UPSCALED_CF_DIR,
+    UPSCALED_DATASET_DIR,
+)
 
 
 def get_largest_bbox_from_resized_coords(item):
@@ -476,31 +489,31 @@ def main():
     parser.add_argument(
         "--metadata_path",
         type=str,
-        default="data/metadata/processed_df_birads.json",
+        default=PROCESSED_METADATA_PATH,
         help="Path to the metadata JSON file.",
     )
     parser.add_argument(
         "--cf_dir",
         type=str,
-        default="data/images/repaint_results_912x1520",
+        default=UPSCALED_CF_DIR,
         help="Directory containing counterfactual images.",
     )
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="data/images/VinDrMammo-CLIP-512-CLAHE-912-1520",
+        default=UPSCALED_DATASET_DIR,
         help="Directory containing original images.",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="data/images/patches_for_fid/cf_patches/repaint_patches_512",
+        default=FID_CF_PATCHES_DIR,
         help="Directory where cropped counterfactual patches will be saved.",
     )
     parser.add_argument(
         "--healthy_output_dir",
         type=str,
-        default="data/images/patches_for_fid/healthy_patches/healthy_patches_for_fid_512",
+        default=FID_HEALTHY_PATCHES_DIR,
         help="Directory where cropped healthy patches will be saved.",
     )
     parser.add_argument(

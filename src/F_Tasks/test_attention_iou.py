@@ -1,18 +1,25 @@
 import os, sys, json
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 from PIL import Image, ImageDraw, ImageFont
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
-METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
-IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
-LOGS_ROOT = os.path.join(PROJECT_ROOT, "data/logs")
+from src.config import (
+    ATTENTION_IOU_LOGS_DIR,
+    INBREAST_DATASET_DIR,
+    INBREAST_METADATA_PATH,
+    IMAGES_ROOT,
+    METADATA_ROOT,
+    MODELS_ROOT,
+    PROCESSED_DATASET_DIR,
+    PROCESSED_METADATA_PATH,
+    ROOT as PROJECT_ROOT,
+)
 
 from src.E_Aux_Scripts.utils import set_seed, seed_worker
 from src.E_Aux_Scripts.classifier_helpers import (
@@ -406,7 +413,7 @@ def save_best_visualizations(best_cases, output_dir):
 
 def resolve_output_paths(args):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir = args.log_dir or os.path.join(LOGS_ROOT, "attention_iou", timestamp)
+    log_dir = args.log_dir or os.path.join(ATTENTION_IOU_LOGS_DIR, timestamp)
     os.makedirs(log_dir, exist_ok=True)
 
     iou_output = args.iou_output or "gradcam_iou.json"
@@ -431,17 +438,17 @@ def main():
 
     if args.data_dir is None:
         if args.dataset.lower() == "vindr":
-            args.data_dir = os.path.join(IMAGES_ROOT, "VinDrMammo-CLIP-CLAHE")
+            args.data_dir = PROCESSED_DATASET_DIR
         elif args.dataset.lower() == "inbreast":
-            args.data_dir = os.path.join(IMAGES_ROOT, "datasets/Inbreast_png")
+            args.data_dir = INBREAST_DATASET_DIR
         else:
             raise ValueError(f"Unsupported dataset: {args.dataset}")
 
     if args.metadata_path is None:
         if args.dataset.lower() == "vindr":
-            args.metadata_path = os.path.join(METADATA_ROOT, "processed_df_birads.json")
+            args.metadata_path = PROCESSED_METADATA_PATH
         elif args.dataset.lower() == "inbreast":
-            args.metadata_path = os.path.join(METADATA_ROOT, "inbreast_test_metadata.csv")
+            args.metadata_path = INBREAST_METADATA_PATH
         else:
             raise ValueError(f"Unsupported dataset: {args.dataset}")
 

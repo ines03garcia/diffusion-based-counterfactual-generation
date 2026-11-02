@@ -2,16 +2,23 @@ import json
 import os
 import statistics
 import sys
+from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 from scipy.stats import wilcoxon
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
-METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
-IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
+from src.config import (
+	IMAGES_ROOT,
+	INBREAST_DATASET_DIR,
+	INBREAST_METADATA_PATH,
+	METADATA_ROOT,
+	MODELS_ROOT,
+	PROCESSED_DATASET_DIR,
+	RESIZED_METADATA_PATH,
+	ROOT as PROJECT_ROOT,
+)
 
 from src.E_Aux_Scripts import logger
 from src.E_Aux_Scripts.utils import set_seed, seed_worker
@@ -138,15 +145,15 @@ def main():
 
 	if args.data_dir is None:
 		if args.dataset == "vindr":
-			args.data_dir = os.path.join(IMAGES_ROOT, "VinDr-Mammo-Clip-CLAHE-512")
+			args.data_dir = PROCESSED_DATASET_DIR
 		else:
-			args.data_dir = os.path.join(IMAGES_ROOT, "datasets/Inbreast_png")
+			args.data_dir = INBREAST_DATASET_DIR
 
 	if args.metadata_path is None:
 		if args.dataset == "vindr":
-			args.metadata_path = os.path.join(METADATA_ROOT, "resized_df_512.json")
+			args.metadata_path = RESIZED_METADATA_PATH
 		else:
-			args.metadata_path = os.path.join(METADATA_ROOT, "inbreast_test_metadata.csv")
+			args.metadata_path = INBREAST_METADATA_PATH
 
 	set_seed(args.seed)
 

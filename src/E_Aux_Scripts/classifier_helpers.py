@@ -35,10 +35,10 @@ from src.E_Aux_Scripts.LOW import LOWLoss
 
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.config import MAMMO_CLIP_B2_CHECKPOINT, MAMMO_CLIP_B5_CHECKPOINT
 MAMMO_CLIP_CHECKPOINTS = {
-	"b2": os.path.join(PROJECT_ROOT, "models", "b2-model-best-epoch-10.tar"),
-	"b5": os.path.join(PROJECT_ROOT, "models", "b5-model-best-epoch-7.tar"),
+	"b2": MAMMO_CLIP_B2_CHECKPOINT,
+	"b5": MAMMO_CLIP_B5_CHECKPOINT,
 }
 
 

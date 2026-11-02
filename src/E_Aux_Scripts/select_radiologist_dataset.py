@@ -3,12 +3,25 @@ import ast
 import json
 import random
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 import cv2
 import numpy as np
 from PIL import Image
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from src.config import (
+    CF_DIR,
+    PROCESSED_DATASET_DIR,
+    PROCESSED_METADATA_512_PATH,
+    RADIOLOGIST_BBOX_OUTPUT_DIR,
+    RADIOLOGIST_METADATA_PATH,
+    RADIOLOGIST_OUTPUT_DIR,
+)
 
 
 EXCLUDED_CF_IDS = {
@@ -52,25 +65,25 @@ def parse_args():
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="data/images/VinDrMammo-CLIP-512-CLAHE",
+        default=PROCESSED_DATASET_DIR,
         help="Root directory for original healthy images",
     )
     parser.add_argument(
         "--cf_dir",
         type=str,
-        default="data/images/repaint_results",
+        default=CF_DIR,
         help="Directory for counterfactual images",
     )
     parser.add_argument(
         "--metadata_path",
         type=str,
-        default="data/metadata/processed_df_birads_512.json",
+        default=PROCESSED_METADATA_512_PATH,
         help="JSON file with metadata",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="data/images/radiologist_assessment/full_realism",
+        default=RADIOLOGIST_OUTPUT_DIR,
         help="Output directory for the 100 clean selected images",
     )
     parser.add_argument(
@@ -78,7 +91,7 @@ def parse_args():
         "--output_cf_dir",
         dest="output_bb_dir",
         type=str,
-        default="data/images/radiologist_assessment/healthy_patch_realism",
+        default=RADIOLOGIST_BBOX_OUTPUT_DIR,
         help=(
             "Output directory for the same 100 images with bounding boxes drawn. "
             "--output_cf_dir is kept as an alias for backward compatibility."
@@ -87,7 +100,7 @@ def parse_args():
     parser.add_argument(
         "--output_json",
         type=str,
-        default="data/metadata/radiologist_dataset.json",
+        default=RADIOLOGIST_METADATA_PATH,
         help="Output JSON file for selected images metadata",
     )
     parser.add_argument(

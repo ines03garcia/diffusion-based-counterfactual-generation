@@ -3,12 +3,12 @@ import importlib
 import json
 import os
 import sys
+from pathlib import Path
 from typing import List
 
 import numpy as np
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.E_Aux_Scripts.argument_parsers import create_significance_argparser
 

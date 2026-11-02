@@ -15,11 +15,10 @@ import os
 import sys
 import json
 import glob
+from pathlib import Path
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
-METADATA_ROOT = os.path.join(PROJECT_ROOT, "data/metadata")
-IMAGES_ROOT = os.path.join(PROJECT_ROOT, "data/images")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from src.config import CF_DIR, RESIZED_METADATA_PATH
 
 
 def main():
@@ -217,8 +216,8 @@ def create_argparser():
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--run_parent_dir", type=str, default=None)
 	parser.add_argument("--run_parent_dirs", nargs=4, type=str, default=None)
-	parser.add_argument('--metadata_path', type=str, default=os.path.join(METADATA_ROOT, "resized_df_512.json"))
-	parser.add_argument('--cf_dir', type=str, default=os.path.join(IMAGES_ROOT, "repaint_results"))
+	parser.add_argument('--metadata_path', type=str, default=RESIZED_METADATA_PATH)
+	parser.add_argument('--cf_dir', type=str, default=CF_DIR)
 	return parser
 
 if __name__ == "__main__":

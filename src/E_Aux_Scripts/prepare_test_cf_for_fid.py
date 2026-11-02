@@ -3,20 +3,27 @@
 import argparse
 import json
 import shutil
+import sys
 from pathlib import Path
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_METADATA_PATH = PROJECT_ROOT / "data/metadata/processed_df_birads.json"
-DEFAULT_CF_DIR = (
-    PROJECT_ROOT / "data/images/repaint_results_912x1520"
+from src.config import (
+    HEALTHY_FID_DIR,
+    PROCESSED_METADATA_PATH,
+    TEST_CF_FID_DIR,
+    TEST_HEALTHY_FID_DIR,
+    UPSCALED_CF_DIR,
+    UPSCALED_DATASET_DIR,
 )
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data/images/test_cf_for_fid"
-DEFAULT_DATA_DIR = (
-    PROJECT_ROOT / "data/images/VinDrMammo-CLIP-512-CLAHE-912-1520"
-)
-DEFAULT_HEALTHY_OUTPUT_DIR = PROJECT_ROOT / "data/images/healthy_for_fid"
-DEFAULT_TEST_HEALTHY_OUTPUT_DIR = PROJECT_ROOT / "data/images/test_healthy_for_fid"
+
+DEFAULT_METADATA_PATH = Path(PROCESSED_METADATA_PATH)
+DEFAULT_CF_DIR = Path(UPSCALED_CF_DIR)
+DEFAULT_OUTPUT_DIR = Path(TEST_CF_FID_DIR)
+DEFAULT_DATA_DIR = Path(UPSCALED_DATASET_DIR)
+DEFAULT_HEALTHY_OUTPUT_DIR = Path(HEALTHY_FID_DIR)
+DEFAULT_TEST_HEALTHY_OUTPUT_DIR = Path(TEST_HEALTHY_FID_DIR)
 
 
 def copy_test_counterfactuals(

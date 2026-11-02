@@ -1,13 +1,10 @@
 import os
-import sys
 import logging
 import torch
 import torch.nn as nn
 from torchvision.models import convnext_base
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
-MODELS_ROOT = os.path.join(PROJECT_ROOT, "models")
+from src.config import MODELS_ROOT
 
 from src.E_Aux_Scripts.utils import check_internet_connection
 
