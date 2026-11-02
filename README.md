@@ -41,6 +41,45 @@ cp src/config.example.py src/config.py
 You can also set `PROJECT_ROOT` to place the `data/` and `models/` directories
 outside the repository. Do not commit the copied `src/config.py`.
 
+## Hugging Face Artifacts
+
+The trained diffusion checkpoint is available in the [DDPM healthy mammogram
+generation repository](https://huggingface.co/senigarcia/ddpm-healthy-mammogram-generation):
+
+- `model008000.pt`: trained DDPM checkpoint for healthy mammogram generation.
+- `training_args.json`: training arguments associated with the checkpoint.
+
+The classifier checkpoints and their exact training arguments are available in
+the [healthy-vs-anomalous classifier checkpoint repository](https://huggingface.co/senigarcia/healthy_vs_anomalous-classifier-checkpoints):
+
+- `checkpoints/convnext_baseline.pth` and `configs/convnext_baseline_args.json`:
+  ConvNeXt trained without counterfactual augmentation.
+- `checkpoints/convnext_cf.pth` and `configs/convnext_cf_args.json`:
+  ConvNeXt trained with counterfactual augmentation.
+- `checkpoints/vit_baseline.pth` and `configs/vit_baseline_args.json`:
+  ViT trained without counterfactual augmentation.
+- `checkpoints/vit_cf.pth` and `configs/vit_cf_args.json`:
+  ViT trained with counterfactual augmentation.
+- `checkpoints/mammo_clip_baseline.pth` and `configs/mammo_clip_baseline_args.json`:
+  Mammo-CLIP trained without counterfactual augmentation.
+- `checkpoints/mammo_clip_cf.pth` and `configs/mammo_clip_cf_args.json`:
+  Mammo-CLIP trained with counterfactual augmentation.
+
+FPN-MIL checkpoints are not included because the checkpoint corresponding to
+the reported results could not be identified unambiguously.
+
+The image datasets can be uploaded with
+`src/E_Aux_Scripts/upload_image_datasets_to_hf.py`. The uploader stores these
+folders as separate directories in a Hugging Face dataset repository:
+
+- `VinDrMammo-CLIP-512-CLAHE`: processed VinDrMammo images used by the classifiers.
+- `VinDrMammo-CLIP-512-CLAHE-912-1520`: resized images used for full-resolution evaluation and FID preparation.
+- `repaint_results`: generated counterfactual images used for classifier augmentation and assessment.
+- `repaint_results_912x1520`: resized counterfactual images used mainly for FID preparation.
+
+The image-dataset repository link will be added here after the dataset
+repository is selected and uploaded.
+
 ## Key Features
 
 - **Diffusion Models**: Implementation of DDPM and guided diffusion for counterfactual image generation.
