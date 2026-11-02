@@ -186,6 +186,12 @@ The same folders can be uploaded or updated with
   This script compares matching `test_metrics.json` files with ASO and can save a JSON summary for downstream analysis.
 
 ## Citation
-TO DO
+
+This work uses the counterfactual-generation technique described in the
+[prototype-assertive-proactive repository](https://github.com/MIMBCD-UI/prototype-assertive-proactive#citing).
+
+This work was presented at the DeepBreast Workshop at MICCAI 2026 in
+Strasbourg.
+
 ## License
 TO DO
