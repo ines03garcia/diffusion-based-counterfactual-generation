@@ -101,6 +101,23 @@ repository is selected and uploaded.
 
 ## Usage
 
+- **Preprocess images**: paths default to the local `src/config.py` values and
+  can be overridden explicitly:
+  ```bash
+  python src/B_Dataset_Preprocessing/images_preprocessing.py \
+    --operation process
+  python src/B_Dataset_Preprocessing/images_preprocessing.py \
+    --operation upscale-counterfactuals
+  ```
+
+- **Preprocess metadata**:
+  ```bash
+  python src/B_Dataset_Preprocessing/metadata_preprocessing.py \
+    --label birads
+  ```
+  Use `--input-csv`, `--output-json`, `--image-dir`, and `--cf-dir` when
+  working with a different dataset or directory layout.
+
 - **Train diffusion models**: `src/DDPM/scripts/image_train.py`
   ```bash
   python src/DDPM/scripts/image_train.py [training-parameters]

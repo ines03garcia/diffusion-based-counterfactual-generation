@@ -18,6 +18,8 @@ IMAGES_ROOT = os.path.join(DATA_ROOT, "images")
 METADATA_ROOT = os.path.join(DATA_ROOT, "metadata")
 LOGS_PATH = os.path.join(DATA_ROOT, "logs")
 CLASSIFIER_CHECKPOINTS_DIR = MODELS_ROOT
+RAW_IMAGES_DIR = os.path.join(IMAGES_ROOT, "images_png")
+REORGANIZED_IMAGES_DIR = os.path.join(IMAGES_ROOT, "dataset_reorganized")
 
 # Change these dataset-specific names to match your local files.
 DATASET_DIR = os.path.join(IMAGES_ROOT, "dataset")

@@ -6,12 +6,26 @@ Preprocess metadata:
 4. Output as JSON
 
 """
+import argparse
 import pandas as pd
 import ast
 import cv2
 import json
 import os
 import math
+import sys
+from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from src.config import (
+    CF_DIR,
+    DATASET_DIR,
+    GROUPED_METADATA_PATH,
+    PROCESSED_METADATA_PATH,
+    PROCESSED_METADATA_512_PATH,
+)
 
 def parse_serialized_list(value):
     """Parse various malformed serialization formats to actual list."""
@@ -169,14 +183,15 @@ def resize_bbox_with_aspect_ratio(xmin_list, ymin_list, xmax_list, ymax_list,
     
     return resized_xmin, resized_ymin, resized_xmax, resized_ymax
 
-def process_dataframe(df_grouped, label='birads', resize_bboxes=False, target_size=None, image_dir="data/images/VinDrMammo-CLIP", cf_dir="data/images/repaint_results"):
+def process_dataframe(df_grouped, label='birads', resize_bboxes=False, target_size=None, image_dir=None, cf_dir=None):
     """
     Process grouped dataframe and (optionally) resize bboxes.
     Return list of dicts suitable for JSON output.
     """
     output = []
 
-    cf_dir = "data/images/repaint_results" # To set "has_cf" label
+    image_dir = image_dir or DATASET_DIR
+    cf_dir = cf_dir or CF_DIR
     cf_image_ids = set()
     if os.path.isdir(cf_dir):
         cf_image_ids = {
@@ -275,22 +290,46 @@ def process_dataframe(df_grouped, label='birads', resize_bboxes=False, target_si
     
     return output
 
-if __name__ == "__main__":
-    # Load data
-    df_grouped = pd.read_csv("data/metadata/grouped_df.csv")
-    print(f"Loaded {len(df_grouped)} images from grouped_df.csv")
-    
-    label="birads" # Options: "birads", "mass", "calcification"
-    resize_bboxes = False
-    target_size = 512
+def main():
+    parser = argparse.ArgumentParser(description="Process grouped mammogram metadata.")
+    parser.add_argument("--input-csv", default=GROUPED_METADATA_PATH)
+    parser.add_argument("--output-json", default=None)
+    parser.add_argument("--label", choices=["birads", "mass", "calcification"], default="birads")
+    parser.add_argument("--image-dir", default=DATASET_DIR)
+    parser.add_argument("--cf-dir", default=CF_DIR)
+    parser.add_argument("--resize-bboxes", action="store_true")
+    parser.add_argument("--target-size", type=int, default=512)
+    args = parser.parse_args()
 
-    # Drop unecessary columns, resize bounding boxes (optionally) and prepare JSON
-    data_list = process_dataframe(df_grouped, label=label, resize_bboxes=resize_bboxes, target_size=target_size)
-    
-    # Save output as JSON
-    output_path = f"data/metadata/processed_df_{label}_{target_size}.json" if resize_bboxes else f"data/metadata/processed_df_{label}.json"
-    with open(output_path, 'w') as f:
+    df_grouped = pd.read_csv(args.input_csv)
+    print(f"Loaded {len(df_grouped)} images from {args.input_csv}")
+    data_list = process_dataframe(
+        df_grouped,
+        label=args.label,
+        resize_bboxes=args.resize_bboxes,
+        target_size=args.target_size,
+        image_dir=args.image_dir,
+        cf_dir=args.cf_dir,
+    )
+
+    if args.output_json:
+        output_path = args.output_json
+    elif args.resize_bboxes and args.label == "birads" and args.target_size == 512:
+        output_path = PROCESSED_METADATA_512_PATH
+    elif args.label == "birads":
+        output_path = PROCESSED_METADATA_PATH
+    else:
+        output_path = os.path.join(
+            os.path.dirname(PROCESSED_METADATA_PATH),
+            f"processed_df_{args.label}{'_' + str(args.target_size) if args.resize_bboxes else ''}.json",
+        )
+
+    with open(output_path, "w") as f:
         json.dump(data_list, f, indent=2)
-    print(f"Saved resized bboxes to {output_path}")
+    print(f"Saved processed metadata to {output_path}")
     print(f"Total records: {len(data_list)}")
+
+
+if __name__ == "__main__":
+    main()
 

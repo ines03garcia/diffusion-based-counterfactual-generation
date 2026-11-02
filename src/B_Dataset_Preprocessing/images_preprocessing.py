@@ -1,9 +1,23 @@
 # Prepare dataset by running CLAHE on all images
+import argparse
 import cv2
 import os
 import shutil
+import sys
 import numpy as np
+from pathlib import Path
 from tqdm import tqdm
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from src.config import (
+    CF_DIR,
+    DATASET_DIR,
+    RAW_IMAGES_DIR,
+    REORGANIZED_IMAGES_DIR,
+    UPSCALED_CF_DIR,
+)
 
 def resize_image_with_aspect_ratio(image, target_size=512):
     """
@@ -76,10 +90,13 @@ def process_dataset(input_dir, output_dir, resize_images, target_size=None, appl
         print(f"Processed {filename} and saved to {output_path}")
 
 
-def reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDr-Mammo-CLIP"):
+def reorganize_images_folder(src_dir=None, dest_dir=None):
     """
     Copies image files to a new folder without patient id subfolders.
     """
+    src_dir = src_dir or RAW_IMAGES_DIR
+    dest_dir = dest_dir or REORGANIZED_IMAGES_DIR
+
     if not os.path.exists(src_dir):
         raise ValueError(f"Source directory {src_dir} does not exist")
     if not os.path.exists(dest_dir):
@@ -99,10 +116,13 @@ def reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/im
     return dest_dir
 
 
-def upscale_counterfactuals(original_cf_dir="data/images/repaint_results", output_cf_dir="data/images/repaint_results_912x1520", target_sizes=(912, 1520)):
+def upscale_counterfactuals(original_cf_dir=None, output_cf_dir=None, target_sizes=(912, 1520)):
     """
     Remove padding from generated counterfactual images and resize the cropped content to the target size.
     """
+    original_cf_dir = original_cf_dir or CF_DIR
+    output_cf_dir = output_cf_dir or UPSCALED_CF_DIR
+
     if not os.path.exists(original_cf_dir):
         raise ValueError(f"Source directory {original_cf_dir} does not exist")
     if not os.path.exists(output_cf_dir):
@@ -178,14 +198,32 @@ def print_mean_std(image_dir):
         print("No pixel values found to calculate mean and std.")
 
 
-if __name__ == "__main__":
-    input_directory = "data/images/VinDrMammo-CLIP" # Input images directory
-    output_directory = "data/images/VinDrMammo-CLIP-CLAHE" # Output directory for resized CLAHE images
+def main():
+    parser = argparse.ArgumentParser(description="Preprocess PNG mammogram images.")
+    parser.add_argument(
+        "--operation",
+        choices=["process", "reorganize", "upscale-counterfactuals", "mean-std"],
+        required=True,
+        help="Preprocessing operation to run.",
+    )
+    parser.add_argument("--input-dir", default=None, help="Input image directory.")
+    parser.add_argument("--output-dir", default=None, help="Output image directory.")
+    parser.add_argument("--resize-images", action="store_true")
+    parser.add_argument("--target-size", type=int, default=512)
+    parser.add_argument("--no-clahe", action="store_true")
+    args = parser.parse_args()
 
-    #input_directory = reorganize_images_folder(src_dir="data/images/images_png", dest_dir="data/images/VinDrMammo-CLIP")
-    
-    #process_dataset(input_directory, output_directory, resize_images=False, apply_clahe=True)
-
-    #upscale_counterfactuals(original_cf_dir="data/images/repaint_results", output_cf_dir="data/images/repaint_results_912x1520", target_sizes=(912, 1520))
-
-    print_mean_std(output_directory)
+    if args.operation == "process":
+        process_dataset(
+            args.input_dir or REORGANIZED_IMAGES_DIR,
+            args.output_dir or DATASET_DIR,
+            resize_images=args.resize_images,
+            target_size=args.target_size if args.resize_images else None,
+            apply_clahe=not args.no_clahe,
+        )
+    elif args.operation == "reorganize":
+        reorganize_images_folder(args.input_dir, args.output_dir)
+    elif args.operation == "upscale-counterfactuals":
+        upscale_counterfactuals(args.input_dir, args.output_dir)
+    else:
+        print_mean_std(args.input_dir or DATASET_DIR)
