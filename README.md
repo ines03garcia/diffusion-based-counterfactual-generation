@@ -1,6 +1,28 @@
-# Healthy Counterfactual Generation via Diffusion Inpainting for Mammography Classification
+<h1 align="center">
+Healthy Counterfactual Generation via Diffusion Inpainting for Mammography Classification
+</h1>
 
-This repository provides code for generating counterfactual images using diffusion models and its application through data augmentation in deep learning mammogram classifiers. The project is organized for research in medical imaging, specifically mammography, but can be adapted for other domains.
+<p align="center">
+  <a href="https://papers.miccai.org/miccai-2026-sat/paper/Deep_Brea3th_034.pdf">
+    <img src="https://img.shields.io/badge/Paper-d995aa?style=flat">
+  </a>
+  <a href="https://huggingface.co/senigarcia/models">
+    <img src="https://img.shields.io/badge/Checkpoints-8fba92?style=flat">
+  </a>
+  <a href="https://huggingface.co/datasets/senigarcia/diffusion-based-counterfactual-generation">
+    <img src="https://img.shields.io/badge/Image%20Datasets-83a9c9?style=flat">
+  </a>
+</p>
+
+This repository contains the official implementation of the paper
+"Healthy Counterfactual Generation via Diffusion Inpainting for Mammography
+Classification", presented at the DeepBre3ast Workshop at MICCAI 2026 in
+Strasbourg. It provides code for generating healthy counterfactual mammograms
+with diffusion inpainting and evaluating their use as data augmentation for
+mammography classifiers.
+
+The project is organized for research in medical imaging, specifically
+mammography, but can be adapted for other domains.
 
 ## Project Structure
 
@@ -187,11 +209,27 @@ The same folders can be uploaded or updated with
 
 ## Citation
 
-This work uses the counterfactual-generation technique described in the
-[prototype-assertive-proactive repository](https://github.com/MIMBCD-UI/prototype-assertive-proactive#citing).
+If you use this work, please cite the MICCAI 2026
+workshop proceedings paper:
 
-This work was presented at the DeepBreast Workshop at MICCAI 2026 in
-Strasbourg.
+
+```bibtex
+@InProceedings{GarInê_Healthy_MICCAISAT2026,
+    author = { Garcia, Inês Cruchinho AND Mourão, Mariana AND Calisto, Francisco Maria AND Santiago, Carlos AND Nascimento, Jacinto},
+    title = { { Healthy Counterfactual Generation via Diffusion Inpainting for Mammography Classification } },
+    booktitle = {Medical Image Computing and Computer Assisted Intervention -- MICCAI 2026 Workshops and Challenges},
+    year = {2026},
+    publisher = {Springer Nature Switzerland},
+    volume = {LNCS 17256},
+    month = {pending},
+    page = {pending}
+}
+```
+
 
 ## License
-TO DO
+
+The source code in this repository is released under the MIT License.
+
+This license does not cover third-party datasets, pretrained models, or other
+external assets, which remain subject to their respective licenses and terms.
